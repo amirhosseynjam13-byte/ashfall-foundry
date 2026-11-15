@@ -110,19 +110,25 @@ export function slideMove(pos, vel, dt, colliders) {
 	const r = CFG.actorRadius;
 	const h = CFG.actorHeight;
 
-	// Y axis: gravity, landing, head bumps.
+	// Y axis: gravity, landing, head bumps. A collider only counts as a
+	// floor when the feet were at or above its top before this move, and
+	// only as a ceiling when the head started below its base — a side
+	// overlap with a tall wall must never teleport the actor onto its roof.
+	const prevY = pos.y;
 	pos.y += vel.y * dt;
-	let hit = overlapsAny(pos, colliders);
+	let hit = null;
+	let landTop = -Infinity;
+	let ceilBase = Infinity;
+	setActorBox(pos);
+	for (let i = 0; i < colliders.length; i++) {
+		const c = colliders[i];
+		if (!actorBox.intersectsBox(c)) continue;
+		if (vel.y <= 0 && prevY >= c.max.y - 0.001 && c.max.y > landTop) { landTop = c.max.y; hit = c; }
+		else if (vel.y > 0 && prevY + h <= c.min.y + 0.001 && c.min.y < ceilBase) { ceilBase = c.min.y; hit = c; }
+	}
 	if (hit) {
-		if (vel.y <= 0 && pos.y < hit.max.y && pos.y > hit.max.y - 1.2) {
-			pos.y = hit.max.y;
-			out.grounded = true;
-		} else if (vel.y > 0) {
-			pos.y = hit.min.y - h;
-		} else {
-			pos.y = hit.max.y;
-			out.grounded = true;
-		}
+		if (vel.y <= 0) { pos.y = landTop; out.grounded = true; }
+		else { pos.y = ceilBase - h; }
 		vel.y = 0;
 	} else if (vel.y <= 0) {
 		// grounded also when standing exactly on a surface (within a hair)

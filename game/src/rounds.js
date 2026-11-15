@@ -5,11 +5,11 @@
 
 import { CFG, WEAPONS, ARMOR, GRENADES } from "./config.js";
 import { randPick } from "./util.js";
-import { giveWeapon, createLoadout } from "./weapons.js";
+import { giveWeapon, createLoadout, selectWeapon } from "./weapons.js";
 
 export function createMatch(G) {
 	const M = {
-		phase: "menu", // menu | freeze | live | planted | end | matchover
+		phase: "menu", // menu | freeze | live | planted | end | over
 		phaseT: 0, // seconds left in the current phase
 		roundNum: 0,
 		score: [0, 0], // [ember, guard]
@@ -131,6 +131,7 @@ export function createMatch(G) {
 		if (kind === "weapon") {
 			if (actor.loadout.states && actor.loadout.states[id]) return false; // already own it
 			giveWeapon(actor, id);
+			selectWeapon(actor, id); // a fresh purchase goes straight into the hands
 		} else if (kind === "armor") {
 			if (id === "vest") {
 				if (actor.armor >= 100) return false;
@@ -258,7 +259,7 @@ export function createMatch(G) {
 	}
 
 	function endRound(winner, reason) {
-		if (M.phase === "end" || M.phase === "matchover") return;
+		if (M.phase === "end" || M.phase === "over") return;
 		M.lastWinner = winner;
 		M.lastReason = reason;
 		M.score[winner]++;
@@ -285,10 +286,8 @@ export function createMatch(G) {
 		if (G.audio) G.audio.sting(G.player && G.player.team === winner);
 
 		const matchWon = M.score[winner] >= CFG.roundsToWin || M.roundNum >= CFG.maxRounds;
-		setPhase(matchWon ? "matchover" : "end", matchWon ? 999 : CFG.roundEndTime);
-		if (matchWon && G.hud) {
-			G.hud.matchEnd(M.score[0] > M.score[1] ? 0 : M.score[1] > M.score[0] ? 1 : -1, M.score);
-		}
+		// the HUD raises its match-end panel itself when it sees phase "over"
+		setPhase(matchWon ? "over" : "end", matchWon ? 999 : CFG.roundEndTime);
 	}
 
 	// --- per-step update ---------------------------------------------------------------
@@ -304,7 +303,7 @@ export function createMatch(G) {
 		M.bombPos = M.bomb ? M.bomb.pos : null;
 		M.bombSite = M.bomb ? M.bomb.site : null;
 		if (M.bomb) M.bomb.planted = M.bomb.state === "planted";
-		if (M.phase === "menu" || M.phase === "matchover") return;
+		if (M.phase === "menu" || M.phase === "over") return;
 
 		M.phaseT -= dt;
 
