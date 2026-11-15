@@ -295,9 +295,18 @@ function setupShot(mode) {
 	const eye = new THREE.Vector3();
 
 	if (mode === "start") {
+		// staged at the A-main entrance, not at spawn: the spawn view is a
+		// blank yard wall, while this frames the furnace hall the round is
+		// about to hit, teammates up ahead, buy menu open over it
+		player.pos.copy(nodePos("a_main"));
+		const vex = G.actors.find((a) => a.team === 0 && a.name === "Vex");
+		vex.pos.copy(nodePos("a_site")); vex.pos.x += 2.5;
+		const rho = G.actors.find((a) => a.team === 0 && a.name === "Rho");
+		rho.pos.copy(nodePos("a_hall"));
+		for (const a of G.actors) a.mesh.position.copy(a.pos);
 		eye.copy(player.pos); eye.y += CFG.eyeStand;
 		cam.position.copy(eye);
-		cam.lookAt(G.world.sites.A.plantPos.x, 2.2, G.world.sites.A.plantPos.z);
+		cam.lookAt(G.world.sites.A.plantPos.x, 2.4, G.world.sites.A.plantPos.z);
 		setBuy(true);
 		return;
 	}
@@ -333,21 +342,24 @@ function setupShot(mode) {
 		const M = G.match;
 		M.score = [4, 2];
 		M.history = [0, 1, 0, 1, 0, 0];
-		M.phase = "planted"; M.phaseT = 6; M.timeLeft = 6;
+		M.phase = "planted"; M.phaseT = 16; M.timeLeft = 16;
 		const plantPos = G.world.sites.A.plantPos.clone();
-		M.bomb = { state: "planted", carrier: null, site: "A", pos: plantPos, t: 6, planted: true };
+		M.bomb = { state: "planted", carrier: null, site: "A", pos: plantPos, t: 16, planted: true, action: "defuse", progress: 0.55 };
 		M.bombPlanted = true; M.bombPos = plantPos; M.bombSite = "A";
 		const guard = G.actors.find((a) => a.team === 1 && a.name === "Warden");
 		guard.pos.copy(plantPos); guard.pos.x += 1.1;
 		guard.crouch01 = 1;
-		guard.yaw = -Math.PI / 2;
+		guard.yaw = Math.PI / 2; // face the charge (and the incoming player)
+		guard.defusing = true;
+		// the real channel state, so the HUD progress bar stays alive
+		M.channel = { actor: guard, kind: "defuse", t: 2.7, dur: 5, site: "A", x: guard.pos.x, z: guard.pos.z };
 		player.pos.copy(nodePos("a_site"));
-		player.pos.x -= 3.5;
+		player.pos.x -= 7;
+		player.pos.z -= 3.5; // off the sign-post's line: a slight diagonal
 		for (const a of G.actors) a.mesh.position.copy(a.pos);
 		eye.copy(player.pos); eye.y += CFG.eyeStand;
 		cam.position.copy(eye);
-		cam.lookAt(plantPos.x, 0.7, plantPos.z);
-		G.hud.progress("DEFUSING", 0.45);
+		cam.lookAt(plantPos.x, 1.0, plantPos.z);
 		G.hud.banner("Charge planted", "Site A — Furnace", 0);
 	}
 }
