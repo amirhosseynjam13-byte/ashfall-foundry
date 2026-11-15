@@ -1,15 +1,4 @@
-// actors.js - the physical soldier every combatant (player and bots) wears.
-// createActor builds an articulated trooper - jointed arms and legs, vest
-// with pouches, helmet with a glowing visor, a shaped rifle in the hands -
-// and owns everything about the body: pose animation (walk cycle, aim
-// blend, hit flinch, death), the hitboxes weapons test against, and
-// damage resolution in applyDamage.
-//
-// Convention: an actor's feet sit at actor.pos, and the body faces
-// (sin(yaw), 0, cos(yaw)) - local +Z is "forward" in every layout below.
-// Hitboxes are derived from the same layout numbers setPose renders with,
-// so what you see is exactly what can be shot.
-
+// actors.js - the soldier: articulated model, hitboxes, damage, death, and per-frame posing.
 import * as THREE from "three";
 import { CFG } from "./config.js";
 import { clamp, lerp, damp, rayVsAABB } from "./util.js";
@@ -17,15 +6,11 @@ import { clamp, lerp, damp, rayVsAABB } from "./util.js";
 const UP = new THREE.Vector3(0, 1, 0);
 const HEAD_RADIUS = 0.24;
 
-// Scratch objects for hit tests - per shot, never per frame, but still reused.
-const _lo = new THREE.Vector3(); // ray origin in actor-local space
-const _ld = new THREE.Vector3(); // ray direction in actor-local space
+const _lo = new THREE.Vector3();
+const _ld = new THREE.Vector3();
 const _box = new THREE.Box3();
 const _hitPoint = new THREE.Vector3();
 
-// Body layout as a function of crouch (0 = standing, 1 = fully crouched).
-// All heights are metres above the feet. setPose places the meshes from
-// these numbers and hitTest builds its boxes from them too.
 function partLayout(c) {
 	return {
 		hipY: lerp(0.92, 0.52, c),
@@ -37,9 +22,6 @@ function partLayout(c) {
 	};
 }
 
-// Box geometries are shared by every soldier (a size is a size), so they
-// live in a module-level cache and are never disposed per-actor. Materials
-// stay per-actor: the death fade drives opacity on them individually.
 const _geoCache = new Map();
 function boxGeo(w, h, d) {
 	const key = w + "," + h + "," + d;
@@ -57,8 +39,6 @@ function box(w, h, d, mat) {
 	return m;
 }
 
-// One shared fabric-noise canvas, used as a bump map on the cloth and vest
-// materials so flat team colours pick up a woven, worn read in the light.
 let _fabricTex = null;
 function fabricTexture() {
 	if (_fabricTex) return _fabricTex;
@@ -68,7 +48,7 @@ function fabricTexture() {
 	const g = cv.getContext("2d");
 	g.fillStyle = "#7f7f7f";
 	g.fillRect(0, 0, 128, 128);
-	// Weave: alternating light/dark threads on a 2 px grid.
+
 	for (let y = 0; y < 128; y += 2) {
 		for (let x = 0; x < 128; x += 2) {
 			const v = 108 + ((x + y) % 4 === 0 ? 26 : -14) + (Math.random() * 22 - 11);
@@ -76,7 +56,7 @@ function fabricTexture() {
 			g.fillRect(x, y, 2, 2);
 		}
 	}
-	// Wear: a few darker scuffs and lighter rub patches.
+
 	for (let i = 0; i < 260; i++) {
 		const v = Math.random() < 0.5 ? 70 : 175;
 		g.fillStyle = "rgba(" + v + "," + v + "," + v + ",0.16)";
@@ -90,9 +70,6 @@ function fabricTexture() {
 	return t;
 }
 
-// Builds the soldier mesh for a team (0 Ember orange, 1 Guard teal).
-// Returns the root group plus every moving part setPose animates. The
-// same parts are mirrored to root.userData.parts for shot staging.
 export function buildSoldier(team) {
 	const teamColor = new THREE.Color(CFG.teamColors[team]);
 	const fabric = fabricTexture();
@@ -119,12 +96,11 @@ export function buildSoldier(team) {
 	const allMats = [mats.suit, mats.dark, mats.vest, mats.visor, mats.gunmetal, mats.steel, mats.rubber];
 
 	const root = new THREE.Group();
-	const body = new THREE.Group(); // pitches over on death; root stays put
+	const body = new THREE.Group();
 	root.add(body);
 
 	const lay = partLayout(0);
 
-	// --- Legs: hip pivot -> thigh -> knee pivot -> shin + boot. --------
 	function makeLeg(side) {
 		const pivot = new THREE.Group();
 		pivot.position.set(0.11 * side, lay.hipY, 0);
@@ -148,7 +124,6 @@ export function buildSoldier(team) {
 	const legL = legLOut.pivot, legR = legROut.pivot;
 	const kneeL = legLOut.knee, kneeR = legROut.knee;
 
-	// --- Pelvis: hips, belt and side pouches. ---------------------------
 	const pelvis = new THREE.Group();
 	pelvis.position.y = lay.hipY;
 	const pelvisMesh = box(0.44, 0.24, 0.3, mats.dark);
@@ -161,7 +136,6 @@ export function buildSoldier(team) {
 	pelvis.add(pelvisMesh, belt, hipPouchL, hipPouchR);
 	body.add(pelvis);
 
-	// --- Stomach: abdomen plate with a low front pouch. -----------------
 	const stomach = new THREE.Group();
 	stomach.position.y = lay.stomachY;
 	const abdomen = box(0.45, 0.24, 0.29, mats.suit);
@@ -170,7 +144,6 @@ export function buildSoldier(team) {
 	stomach.add(abdomen, gutPouch);
 	body.add(stomach);
 
-	// --- Torso: chest, vest plates, mag pouches, pack, team accents. ----
 	const torso = new THREE.Group();
 	torso.position.y = lay.chestY;
 	const chest = box(0.54, 0.52, 0.34, mats.suit);
@@ -182,25 +155,31 @@ export function buildSoldier(team) {
 	pack.position.set(0, 0, -0.26);
 	const collar = box(0.3, 0.09, 0.3, mats.dark);
 	collar.position.y = 0.29;
-	// Glowing team stripe across the chest - the Ember/Guard tell at range.
+
 	const chestStripe = box(0.3, 0.05, 0.02, mats.visor);
 	chestStripe.position.set(0, 0.14, 0.205);
 	chestStripe.castShadow = false;
-	torso.add(chest, vestF, vestB, pack, collar, chestStripe);
+
+	const backStripe = box(0.3, 0.05, 0.02, mats.visor);
+	backStripe.position.set(0, 0.14, -0.335);
+	backStripe.castShadow = false;
+	torso.add(chest, vestF, vestB, pack, collar, chestStripe, backStripe);
 	for (let i = -1; i <= 1; i++) {
 		const pouch = box(0.11, 0.15, 0.05, mats.dark);
 		pouch.position.set(0.15 * i, -0.13, 0.215);
 		torso.add(pouch);
 	}
-	// Team-coloured shoulder pads.
+
 	for (const side of [-1, 1]) {
 		const pad = box(0.2, 0.09, 0.26, mats.suit);
 		pad.position.set(0.33 * side, 0.235, 0);
 		torso.add(pad);
+		const strip = box(0.21, 0.02, 0.12, mats.visor);
+		strip.position.set(0.33 * side, 0.29, 0);
+		strip.castShadow = false;
+		torso.add(strip);
 	}
 
-	// --- Arms: shoulder pivot -> upper arm -> elbow pivot -> forearm. ---
-	// Arms hang off the torso so the flinch and sway carry the gun too.
 	function makeArm(side) {
 		const pivot = new THREE.Group();
 		pivot.position.set(0.345 * side, 0.21, 0);
@@ -222,8 +201,6 @@ export function buildSoldier(team) {
 	const armL = armLOut.pivot, armR = armROut.pivot;
 	const elbowL = armLOut.elbow, elbowR = armROut.elbow;
 
-	// --- Rifle in the right hand: receiver, handguard, barrel, muzzle,
-	// magazine, grip, stock, sight post with a glowing dot, team stripe.
 	const gun = new THREE.Group();
 	const receiver = box(0.075, 0.13, 0.44, mats.gunmetal);
 	receiver.position.set(0, 0.05, 0.02);
@@ -254,9 +231,6 @@ export function buildSoldier(team) {
 	gun.rotation.x = 0.06;
 	elbowR.add(gun);
 
-	// --- Head: neck, jaw, helmet shell with brim, glowing visor strip,
-	// team stripe over the crown, and the bolt-on plate shown when the
-	// actor bought a helmet (the `helmet` part setPose toggles).
 	const head = new THREE.Group();
 	head.position.y = lay.headY;
 	const neck = box(0.17, 0.14, 0.17, mats.dark);
@@ -283,15 +257,13 @@ export function buildSoldier(team) {
 		torso, stomach, pelvis, head, helmet, gun,
 		mats: allMats,
 	};
-	// Shot-staging contract: main.js poses/inspects the soldier from here.
+
 	root.userData.parts = {
 		torso, head, armL, armR, legL, legR, gun, kneeL, kneeR, elbowL, elbowR,
 	};
 	return parts;
 }
 
-// Creates one combatant. Spawning (placing pos, giving weapons) is the
-// match's job; the actor starts alive at the origin, standing, unarmoured.
 export function createActor(team, name, isPlayer) {
 	const parts = buildSoldier(team);
 
@@ -300,7 +272,7 @@ export function createActor(team, name, isPlayer) {
 		name,
 		isPlayer: !!isPlayer,
 		hp: 100,
-		armor: 0, // armour points; bought armour sets this to 100
+		armor: 0,
 		helmet: false,
 		alive: true,
 		pos: new THREE.Vector3(),
@@ -310,11 +282,11 @@ export function createActor(team, name, isPlayer) {
 		crouch01: 0,
 		mesh: parts.root,
 		head: parts.head,
-		// scoreboard / economy state, owned here so every system reads one copy
+
 		money: CFG.startMoney,
 		kills: 0,
 		deaths: 0,
-		// combat memory applyDamage maintains for the bot brains
+
 		lastAttacker: null,
 		lastDamageAt: -Infinity,
 
@@ -322,28 +294,22 @@ export function createActor(team, name, isPlayer) {
 		_walkPhase: 0,
 		_deathT: 0,
 		_faded: false,
-		// cosmetic pose state, owned by setPose only: aim blend (0 carry,
-		// 1 shouldered), seconds of combat awareness left, hit-flinch
-		// timer, last hp seen (flinch trigger) and a breathing clock.
+
 		_aim01: 0,
 		_combatT: 0,
 		_flinchT: 0,
 		_lastHp: 100,
 		_poseT: Math.random() * 6.28,
 
-		// Tests a world-space ray against this body's hitboxes.
-		// Returns the nearest { part, dist, point } or null.
 		hitTest(origin, dir) {
 			if (!actor.alive) return null;
-			// Bring the ray into actor-local space (rigid transform, so the
-			// distances we solve for are world distances too).
+
 			_lo.subVectors(origin, actor.pos).applyAxisAngle(UP, -actor.yaw);
 			_ld.copy(dir).applyAxisAngle(UP, -actor.yaw);
 			const lay = partLayout(actor.crouch01);
 			let bestT = Infinity;
 			let bestPart = null;
 
-			// Head: a sphere.
 			{
 				const ox = _lo.x, oy = _lo.y - lay.headY, oz = _lo.z;
 				const b = ox * _ld.x + oy * _ld.y + oz * _ld.z;
@@ -355,7 +321,7 @@ export function createActor(team, name, isPlayer) {
 					if (t >= 0 && t < bestT) { bestT = t; bestPart = "head"; }
 				}
 			}
-			// Chest, stomach and legs: boxes from the layout.
+
 			const boxes = [
 				["chest", 0, lay.chestY, 0, 0.27, 0.26, 0.17],
 				["stomach", 0, lay.stomachY, 0, 0.24, 0.13, 0.15],
@@ -374,24 +340,18 @@ export function createActor(team, name, isPlayer) {
 			return { part: bestPart, dist: bestT, point: _hitPoint.clone() };
 		},
 
-		// Advances the body's animation: syncs the mesh to pos/yaw, runs
-		// the walk cycle, blends between carry and aim poses, plays the
-		// hit flinch and the death fall.
 		setPose(dt) {
 			const p = actor._parts;
 			actor.mesh.position.copy(actor.pos);
-			// The soldier geometry faces local +Z; the shared world convention
-			// is -Z forward (three.js YXZ), hence the half-turn.
+
 			actor.mesh.rotation.y = actor.yaw + Math.PI;
 
 			if (!actor.alive) {
-				// Fall backwards over ~0.45 s, then ghost to 35% opacity
-				// after 4 s so corpses read as out of the fight.
+
 				actor._deathT += dt;
 				const fall = clamp(actor._deathT / 0.45, 0, 1);
 				p.body.rotation.x = -1.5 * (1 - (1 - fall) * (1 - fall));
-				// Settle the pose as it falls: bob drains out, the torso
-				// relaxes and the limbs go slack.
+
 				p.body.position.y *= 0.7;
 				p.torso.rotation.x *= 0.8;
 				p.armR.rotation.x = -0.3;
@@ -421,11 +381,6 @@ export function createActor(team, name, isPlayer) {
 			const swing = Math.sin(phase) * 0.55 * stride;
 			actor._poseT += dt;
 
-			// --- combat awareness -> aim blend -------------------------
-			// Firing spikes recoilPitch (weapons.js decays it in ~45 ms),
-			// so a live value means "shot just now". Taking damage is the
-			// other trigger, watched via the hp delta - and it also fires
-			// the flinch. Neither changes any damage behaviour.
 			if (actor.recoilPitch !== undefined && actor.recoilPitch > 0.004) {
 				actor._combatT = Math.max(actor._combatT, 1.6);
 			}
@@ -437,16 +392,14 @@ export function createActor(team, name, isPlayer) {
 			actor._combatT = Math.max(0, actor._combatT - dt);
 			let aimTarget;
 			if (actor.isPlayer || actor._combatT > 0) aimTarget = 1;
-			else aimTarget = speed > 0.4 ? 0.3 : 0.55; // patrol low-ready / held ready
+			else aimTarget = speed > 0.4 ? 0.3 : 0.55;
 			actor._aim01 = damp(actor._aim01, aimTarget, 9, dt);
 			const aim01 = actor._aim01;
 
-			// --- hit flinch: a fast torso kick that eases out -----------
 			if (actor._flinchT > 0) actor._flinchT = Math.max(0, actor._flinchT - dt);
 			const fl = actor._flinchT / 0.26;
 			const flinch = fl * fl;
 
-			// --- legs: walk cycle, folded into the crouch ---------------
 			const walk = 1 - c;
 			p.legL.position.y = lay.hipY;
 			p.legR.position.y = lay.hipY;
@@ -457,25 +410,19 @@ export function createActor(team, name, isPlayer) {
 			p.pelvis.position.y = lay.hipY;
 			p.stomach.position.y = lay.stomachY;
 
-			// --- body bob, breathing and sway ---------------------------
 			const bob = (0.5 - 0.5 * Math.cos(2 * phase)) * 0.05 * stride * walk;
 			const breath = Math.sin(actor._poseT * 1.7) * 0.006 * (1 - stride);
 			p.body.position.y = bob + breath;
 			p.body.rotation.x = 0;
 
-			// --- torso: layout height, sway, flinch ---------------------
 			p.torso.position.y = lay.chestY;
 			p.torso.rotation.x = -0.32 * flinch;
 			p.torso.rotation.z = Math.sin(phase) * 0.035 * stride;
 			p.torso.rotation.y = Math.sin(phase) * 0.06 * stride * (1 - aim01 * 0.7);
 
-			// --- head: follows the aim pitch, kicked by the flinch ------
 			p.head.position.y = lay.headY;
 			p.head.rotation.x = -actor.pitch * 0.6 - 0.3 * flinch;
 
-			// --- arms: carry <-> aim blend. The right arm shoulders the
-			// rifle; the left swings in to brace the handguard. Off-aim,
-			// both counter-swing gently against the stride.
 			const shoulderAim = -Math.PI / 2 + actor.pitch;
 			p.armR.rotation.x = lerp(-0.5, shoulderAim, aim01) + swing * 0.18 * (1 - aim01);
 			p.armR.rotation.y = lerp(0.03, -0.06, aim01);
@@ -490,8 +437,7 @@ export function createActor(team, name, isPlayer) {
 		dispose() {
 			if (actor.mesh.parent) actor.mesh.parent.remove(actor.mesh);
 			actor.mesh.traverse((o) => {
-				// Geometries come from the shared cache - only the
-				// per-actor materials are this soldier's to free.
+
 				if (o.material) o.material.dispose();
 			});
 		},
@@ -500,20 +446,11 @@ export function createActor(team, name, isPlayer) {
 	return actor;
 }
 
-// Resolves one hit against a target. rawDmg is the weapon's damage AFTER
-// range falloff (the caller - weapons or a grenade - owns falloff); this
-// applies the body-part multiplier and armour, drains armour points, and
-// handles death bookkeeping. Returns the damage actually dealt.
 export function applyDamage(G, target, rawDmg, part, attacker) {
 	if (!target || !target.alive || rawDmg <= 0) return 0;
 
-	// rawDmg arrives FINAL pre-armor: weapons.js has already applied the
-	// hit-location multiplier and range falloff. Only armour resolves here.
 	let dmg = rawDmg;
 
-	// Armour covers the head only with a helmet; everything else needs
-	// armour points. It halves the damage, and the armour itself loses
-	// half of what it prevented.
 	const covered = part === "head" ? target.helmet && target.armor > 0 : target.armor > 0;
 	if (covered) {
 		const prevented = dmg * (1 - CFG.armorFactor);

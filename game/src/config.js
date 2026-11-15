@@ -1,13 +1,9 @@
-// config.js - every tunable number of Ashfall Foundry in one place.
-// Weapons, economy, round timings and bot names live here so the rest of the
-// code never hard-codes a balance value. See SPEC.md for the design notes.
-
+// config.js - every tuning number in the game: match, weapons, armor, grenades, the buy list.
 export const CFG = {
-	// teams: 0 = Ember Cell (attackers), 1 = Foundry Guard (defenders)
+
 	teamNames: ["Ember Cell", "Foundry Guard"],
 	teamColors: [0xff7a26, 0x2fd4c4],
 
-	// match / round timings (seconds)
 	roundsToWin: 7,
 	maxRounds: 12,
 	freezeTime: 4,
@@ -18,7 +14,6 @@ export const CFG = {
 	defuseTimeNoKit: 10,
 	roundEndTime: 4,
 
-	// economy
 	startMoney: 800,
 	maxMoney: 16000,
 	killReward: 300,
@@ -29,7 +24,6 @@ export const CFG = {
 	lossStreakStep: 500,
 	lossStreakCap: 2000,
 
-	// actor dimensions / physics
 	actorRadius: 0.42,
 	actorHeight: 1.78,
 	eyeStand: 1.62,
@@ -38,7 +32,6 @@ export const CFG = {
 	jumpVel: 4.6,
 	stepHeight: 0.45,
 
-	// movement speeds (m/s)
 	speedRun: 5.2,
 	speedWalk: 3.2,
 	speedCrouch: 1.7,
@@ -46,23 +39,17 @@ export const CFG = {
 	groundFriction: 6,
 	airAccel: 0.6,
 
-	// damage falloff: full damage to falloffStart, then linear to
-	// falloffMinFrac at falloffEnd metres
 	falloffStart: 18,
 	falloffEnd: 60,
 	falloffMinFrac: 0.55,
 
-	// hitbox multipliers
 	partMult: { head: 4.0, chest: 1.0, stomach: 1.0, arm: 0.85, leg: 0.75 },
-	armorFactor: 0.5, // armoured parts take this fraction of damage
+	armorFactor: 0.5,
 
-	simRate: 60, // fixed simulation steps per second
+	simRate: 60,
 	defaultSeed: 20251116,
 };
 
-// Weapon table. spread is [base, moving] in degrees; total spread also grows
-// with bloom and shrinks while crouched - see weapons.js for the model.
-// recoil is the view pitch kick per shot, in degrees.
 export const WEAPONS = {
 	knife: {
 		name: "Foundry Shiv", price: 0, slot: 3, kind: "melee",
@@ -111,14 +98,8 @@ export const GRENADES = {
 	flash: { name: "Flashbang", price: 200, duration: 2.2, range: 25 },
 };
 
-// Buy menu layout: rows of [kind, id] where kind is weapon|armor|grenade.
 export const BUY = [
 	["weapon", "mule"], ["weapon", "raptor"], ["weapon", "vulcan"], ["weapon", "longshot"],
 	["armor", "vest"], ["armor", "vestHelmet"],
 	["grenade", "frag"], ["grenade", "smoke"], ["grenade", "flash"],
 ];
-
-export const NAMES = {
-	ember: ["Vex", "Rho", "Sable", "Kite"],
-	guard: ["Warden", "Piston", "Gauge", "Holt", "Brigg"],
-};

@@ -1,13 +1,3 @@
-// audio.js - every sound in Ashfall Foundry is synthesised with WebAudio.
-// There are no audio assets: gunshots are shaped noise bursts over a pitched
-// body thump, foley is timed clicks, the foundry ambience is a low hum with
-// random distant clangs. The context is created lazily by unlock(), which the
-// page calls on the first user gesture; every method is a no-op before that.
-//
-// Distance model for shots: shot(kind, dist) takes the distance in metres
-// from the listener (the local player). Far shots lose volume and top end,
-// so a firefight across the map sounds muffled instead of identical.
-
 export function createAudio() {
 	let ctx = null;
 	let master = null;
@@ -16,7 +6,6 @@ export function createAudio() {
 	let stepAlternate = false;
 	let ambientNodes = null;
 
-	// Per-class gunshot recipes: noise length, lowpass body, thump pitch.
 	const SHOT_RECIPES = {
 		pistol: { noise: 0.14, cutoff: 5200, thump: 165, thumpGain: 0.5, vol: 0.55 },
 		smg: { noise: 0.11, cutoff: 5600, thump: 150, thumpGain: 0.42, vol: 0.48 },
@@ -36,7 +25,7 @@ export function createAudio() {
 		master = ctx.createGain();
 		master.gain.value = muted ? 0 : 0.9;
 		master.connect(ctx.destination);
-		// One shared second of white noise feeds every noise-based sound.
+
 		noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
 		const data = noiseBuf.getChannelData(0);
 		for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
@@ -48,7 +37,6 @@ export function createAudio() {
 		return src;
 	}
 
-	// Short filtered noise burst with an exponential decay envelope.
 	function burst({ dur, type = "lowpass", freq, q = 0.8, vol, when = 0, sweepTo = null }) {
 		const t0 = ctx.currentTime + when;
 		const src = noiseSource();
@@ -65,7 +53,6 @@ export function createAudio() {
 		src.stop(t0 + dur + 0.05);
 	}
 
-	// Pitched blip with a pitch drop and decay - thumps, dings, beeps, stings.
 	function tone({ freq, endFreq = null, type = "sine", dur, vol, when = 0 }) {
 		const t0 = ctx.currentTime + when;
 		const osc = ctx.createOscillator();
@@ -93,13 +80,11 @@ export function createAudio() {
 			dur: 0.13, vol: recipe.thumpGain * volScale,
 		});
 		if (kind === "sniper") {
-			// A long crack tail rolling off, like a shot across a yard.
+
 			burst({ dur: 0.55, freq: 900, vol: 0.16 * volScale, when: 0.05, sweepTo: 220 });
 		}
 	}
 
-	// Reload foley: three mechanical clicks spread over the reload. The mule
-	// loads per shell, so weapons.js calls this once per shell there.
 	function reload(kind) {
 		if (!ctx) return;
 		if (kind === "shotgun") {
@@ -148,7 +133,6 @@ export function createAudio() {
 		tone({ freq: 72, endFreq: 45, dur: 0.12, vol: 0.18 });
 	}
 
-	// kind: "throw" (pin + whoosh) or "bounce" (dull knock on metal/concrete).
 	function nade(kind) {
 		if (!ctx) return;
 		if (kind === "bounce") {
@@ -167,8 +151,6 @@ export function createAudio() {
 		burst({ dur: 0.25, freq: 5000, vol: 0.4 });
 	}
 
-	// Bomb beep. rounds.js drives the rate (1 Hz, 5 Hz in the last 10 s);
-	// `final` marks the sharper last-second beeps.
 	function beep(final) {
 		if (!ctx) return;
 		tone({
@@ -196,7 +178,6 @@ export function createAudio() {
 		tone({ freq: 1560, dur: 0.06, vol: 0.1, when: 0.04 });
 	}
 
-	// Two-note round sting; match wins reuse it (bigger second note).
 	function sting(win) {
 		if (!ctx) return;
 		if (win) {
@@ -223,7 +204,7 @@ export function createAudio() {
 		hum2.connect(humGain);
 		hum1.start();
 		hum2.start();
-		// Distant metal clangs at random intervals, like work in another hall.
+
 		const clang = () => {
 			if (!ambientNodes) return;
 			burst({ dur: 0.3, type: "bandpass", freq: 1500 + Math.random() * 900, q: 6, vol: 0.05 });

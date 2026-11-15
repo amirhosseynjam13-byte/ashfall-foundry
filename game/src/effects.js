@@ -1,19 +1,7 @@
-// effects.js - all transient visuals: tracers, impact bursts, muzzle flash,
-// explosions, smoke grenade clouds, shell casings and camera shake.
-// Everything is pooled at creation time; update() allocates nothing, it only
-// advances ages and rewrites pre-allocated buffers/matrices.
-//
-// Smoke clouds register themselves in the exposed `smokes` array as
-// { pos, radius, t } spheres (t = seconds of life left, radius grows over the
-// first second). Bot vision and line-of-sight checks read that array to treat
-// a live cloud as opaque. The array identity never changes - entries are
-// swap-removed in place.
-
 import * as THREE from "three";
 import { GRENADES } from "./config.js";
 import { clamp } from "./util.js";
 
-// --- procedural sprite textures (no assets) --------------------------------
 function glowTexture() {
 	const c = document.createElement("canvas");
 	c.width = c.height = 128;
@@ -31,7 +19,7 @@ function smokeTexture() {
 	const c = document.createElement("canvas");
 	c.width = c.height = 128;
 	const g = c.getContext("2d");
-	// Overlapping soft blobs read as a puff instead of a clean disc.
+
 	for (let i = 0; i < 26; i++) {
 		const x = 24 + Math.random() * 80;
 		const y = 24 + Math.random() * 80;
@@ -58,9 +46,6 @@ function dotTexture() {
 	return new THREE.CanvasTexture(c);
 }
 
-// Muzzle-flash star: a hot core with four tapered spikes. The sprite is
-// billboarded, so the spikes read as a cross flash from any angle; a random
-// material rotation per shot keeps consecutive flashes from looking stamped.
 function flashTexture() {
 	const c = document.createElement("canvas");
 	c.width = c.height = 128;
@@ -97,8 +82,6 @@ export function createEffects(scene) {
 	const dotTex = dotTexture();
 	const flashTex = flashTexture();
 
-	// --- tracers: additive lines with a 60 ms fade, plus a glow sprite head
-	// that races from muzzle to impact over the same window -----------------
 	const TRACER_COUNT = 48;
 	const TRACER_LIFE = 0.06;
 	const tracers = [];
@@ -147,7 +130,6 @@ export function createEffects(scene) {
 		tr.t = TRACER_LIFE;
 	}
 
-	// --- particle bursts: one Points cloud per burst, pooled ------------------
 	const BURST_COUNT = 28;
 	const BURST_POINTS = 14;
 	const bursts = [];
@@ -176,7 +158,7 @@ export function createEffects(scene) {
 		for (let i = 0; i < BURST_POINTS; i++) {
 			const j = i * 3;
 			b.pos[j] = point.x; b.pos[j + 1] = point.y; b.pos[j + 2] = point.z;
-			// Random cone around the surface normal.
+
 			b.vel[j] = normal.x + (Math.random() - 0.5) * 1.6;
 			b.vel[j + 1] = normal.y + (Math.random() - 0.5) * 1.6;
 			b.vel[j + 2] = normal.z + (Math.random() - 0.5) * 1.6;
@@ -193,9 +175,6 @@ export function createEffects(scene) {
 		b.gravity = gravity;
 	}
 
-	// --- dust puffs: soft smoke-textured points, normal blending, pooled -----
-	// Used for concrete dust, metal-impact haze, hit puffs and muzzle wisps:
-	// slow, growing, low opacity - the matte counterpoint to additive sparks.
 	const PUFF_COUNT = 18;
 	const PUFF_POINTS = 9;
 	const puffs = [];
@@ -242,7 +221,6 @@ export function createEffects(scene) {
 		p.baseOpacity = opacity;
 	}
 
-	// --- small glow flashes (impacts, hits): pooled sprites -------------------
 	const FLASH_COUNT = 10;
 	const flashes = [];
 	for (let i = 0; i < FLASH_COUNT; i++) {
@@ -269,8 +247,6 @@ export function createEffects(scene) {
 		f.life = life;
 	}
 
-	// kind: "metal" (bright sparks + embers + haze, default - the foundry is
-	// steel) or "dust" (a slow tan dust puff for concrete and the ground).
 	function impact(point, normal, kind) {
 		if (kind === "dust") {
 			spawnPuff(point, normal, 0xa5937c, 0.24, 0.55, 0.5, 0.7, 0.35);
@@ -283,16 +259,12 @@ export function createEffects(scene) {
 		}
 	}
 
-	// Bloodless hit feedback on an actor: hot ember sparks over a soft puff
-	// at the impact point, no gore.
 	function hitSpark(point) {
 		spawnBurst(point, UP, 0xff5a33, 2.1, 0.32, -3, 0.09);
 		flash(point, 0xff6a3d, 0.42);
 		spawnPuff(point, UP, 0x9a7a68, 0.14, 0.35, 0.3, 0.5, 0.6);
 	}
 
-	// --- muzzle flash: glow + star-spike sprites and one shared light,
-	// retriggered per shot; the light flickers out over the flash life ------
 	const MUZZLE_LIFE = 0.05;
 	const muzzleMat = new THREE.SpriteMaterial({
 		map: glowTex, color: 0xffb066, transparent: true, opacity: 0,
@@ -329,11 +301,10 @@ export function createEffects(scene) {
 		muzzleLight.position.copy(muzzlePos);
 		muzzleLight.intensity = 30;
 		muzzleT = MUZZLE_LIFE;
-		// A faint wisp of propellant smoke drifts out of the muzzle.
+
 		spawnPuff(muzzlePos, dir, 0x9aa0a2, 0.1, 0.45, 0.15, 0.8, 0.35, 0.35);
 	}
 
-	// --- explosions: fireball sprites + light + a rising smoke column --------
 	const EXP_COUNT = 3;
 	const explosions = [];
 	for (let i = 0; i < EXP_COUNT; i++) {
@@ -383,12 +354,11 @@ export function createEffects(scene) {
 			s.rise = 2.2 + Math.random() * 1.6;
 			s.delay = Math.random() * 0.25;
 		}
-		// Dust ring kicked outward along the ground by the blast.
+
 		spawnPuff(pos, UP, 0x8a7a66, 0.85, 0.9, 0.38, 2.4, 0.7, 1.6);
 		shake(0.55);
 	}
 
-	// --- smoke grenade clouds ---------------------------------------------------
 	const CLOUD_COUNT = 4;
 	const CLOUD_SPRITES = 12;
 	const clouds = [];
@@ -406,12 +376,12 @@ export function createEffects(scene) {
 		clouds.push({ sprites, active: false, age: 0, entry: null });
 	}
 	let cloudCursor = 0;
-	const smokes = []; // live vision-blocking spheres, read by bots/LOS checks
+	const smokes = [];
 
 	function smokePuff(pos) {
 		const cloud = clouds[cloudCursor];
 		cloudCursor = (cloudCursor + 1) % CLOUD_COUNT;
-		if (cloud.entry) { // recycled cloud: drop its stale registry entry
+		if (cloud.entry) {
 			const idx = smokes.indexOf(cloud.entry);
 			if (idx !== -1) { smokes[idx] = smokes[smokes.length - 1]; smokes.pop(); }
 			cloud.entry = null;
@@ -433,7 +403,6 @@ export function createEffects(scene) {
 		smokes.push(cloud.entry);
 	}
 
-	// --- shell casings: one InstancedMesh, pooled matrices ---------------------
 	const CASE_COUNT = 96;
 	const caseMesh = new THREE.InstancedMesh(
 		new THREE.CylinderGeometry(0.0075, 0.0085, 0.03, 8),
@@ -470,7 +439,6 @@ export function createEffects(scene) {
 		c.t = 1.2;
 	}
 
-	// --- camera shake: trauma accumulates, offset is a shared vector -----------
 	let trauma = 0;
 	let time = 0;
 	const shakeOffset = new THREE.Vector3();
@@ -480,7 +448,6 @@ export function createEffects(scene) {
 		return shakeOffset;
 	}
 
-	// --- per-frame advance -------------------------------------------------------
 	function update(dt) {
 		time += dt;
 
@@ -539,8 +506,7 @@ export function createEffects(scene) {
 			const k = Math.max(0, muzzleT / MUZZLE_LIFE);
 			muzzleMat.opacity = k;
 			muzzleSpikeMat.opacity = k * 0.95;
-			// Flicker: the light sputters randomly as it dies instead of
-			// switching off in one step.
+
 			muzzleLight.intensity = 30 * k * (0.72 + Math.random() * 0.28);
 			if (muzzleT <= 0) {
 				muzzleMat.opacity = 0;
@@ -604,7 +570,7 @@ export function createEffects(scene) {
 			if (c.t <= 0) { caseMesh.setMatrixAt(i, caseHidden); continue; }
 			c.vel.y -= 9.8 * dt;
 			c.pos.addScaledVector(c.vel, dt);
-			if (c.pos.y < 0.03) { // floor bounce, then rest
+			if (c.pos.y < 0.03) {
 				c.pos.y = 0.03;
 				c.vel.y = Math.abs(c.vel.y) > 0.8 ? -c.vel.y * 0.35 : 0;
 				c.vel.x *= 0.7; c.vel.z *= 0.7;
@@ -613,8 +579,7 @@ export function createEffects(scene) {
 			c.ang += c.spin * dt;
 			caseDummy.position.copy(c.pos);
 			caseDummy.quaternion.setFromAxisAngle(c.axis, c.ang);
-			// Shrink out over the last quarter second - a per-instance fade,
-			// since the shared material cannot fade instances individually.
+
 			const fadeK = c.t < 0.25 ? Math.max(0.001, c.t / 0.25) : 1;
 			caseDummy.scale.set(fadeK, fadeK, fadeK);
 			caseDummy.updateMatrix();

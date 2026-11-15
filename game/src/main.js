@@ -1,30 +1,31 @@
-// main.js - boot and glue for Ashfall Foundry.
-// Owns the single state object G, builds every module, runs the fixed-step
-// simulation (60 Hz, decoupled from rendering), routes the local player's
-// combat input, and directs the deterministic ?shot= screenshot scenes.
-
+// main.js - boot and glue: the state object G, module wiring, the fixed-step loop, the shot director.
 import * as THREE from "three";
 import { CFG, WEAPONS, ARMOR, GRENADES } from "./config.js";
 import { rng, clamp } from "./util.js";
-import { buildWorld } from "./world.js";
-import { createActor } from "./actors.js";
-import { createBotMind } from "./bots.js";
-import { createEffects } from "./effects.js";
-import { createAudio } from "./audio.js";
-import { createInput } from "./input.js";
-import { createPlayer } from "./player.js";
+import { createWeather, WEATHER_MODES } from "./weather.js";
 import { createHUD } from "./hud.js";
 import { createMatch } from "./rounds.js";
+import { createBotMind } from "./bots.js";
+import { buildWorld } from "./world.js";
+import { createPlayer } from "./player.js";
+import { createActor } from "./actors.js";
 import {
 	createLoadout, giveWeapon, selectWeapon, fire, reload, releaseTrigger, selectSlot,
 	currentWeapon, currentSpread, updateWeapons,
 } from "./weapons.js";
+import { createEffects } from "./effects.js";
+import { createInput } from "./input.js";
+import { createAudio } from "./audio.js";
 
 const params = new URLSearchParams(location.search);
-const shotMode = params.get("shot"); // start | play | end | null
+const shotMode = params.get("shot");
 const seed = Number(params.get("seed")) || CFG.defaultSeed;
 
-// --- renderer / scene ---------------------------------------------------------
+const weatherParam = params.get("weather");
+let storedWeather = null;
+try { storedWeather = localStorage.getItem("ashfall-weather"); } catch {  }
+const initialWeather = WEATHER_MODES.includes(weatherParam) ? weatherParam
+	: WEATHER_MODES.includes(storedWeather) ? storedWeather : "dusk";
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -38,11 +39,6 @@ document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 
-// Note: a PMREM environment pass was tried for PBR reflections and cut —
-// under the headless SwiftShader judge renderer it produced white frames.
-
-// --- the one state object -------------------------------------------------------
-
 const G = {
 	scene,
 	renderer,
@@ -51,9 +47,12 @@ const G = {
 	simTime: 0,
 	paused: false,
 	shot: shotMode,
+	shotMenu: shotMode === "menu" || shotMode === "menu2",
+	weatherMode: initialWeather,
+	weather: null,
 	noiseEvents: [],
 	actors: [],
-	player: null, // the local player's actor
+	player: null,
 	camera: null,
 	world: null,
 	effects: null,
@@ -63,13 +62,17 @@ const G = {
 	match: null,
 	playerRig: null,
 };
-window.G = G; // debugging handle
+window.G = G;
 
 G.world = buildWorld(scene);
 G.effects = createEffects(scene);
 G.audio = createAudio();
-
-// --- actors: the local player plus nine bots -------------------------------------
+G.weather = createWeather(scene, renderer, G.world.env);
+G.weather.setMode(initialWeather);
+G.onWeather = (mode) => {
+	G.weatherMode = mode;
+	G.weather.setMode(mode);
+};
 
 function addActor(team, name, isPlayer) {
 	const a = createActor(team, name, isPlayer);
@@ -88,8 +91,6 @@ G.player = player;
 for (const n of ["Vex", "Rho", "Sable", "Kite"]) addActor(0, n, false);
 for (const n of ["Warden", "Piston", "Gauge", "Holt", "Brigg"]) addActor(1, n, false);
 
-// --- input / player rig / HUD / match ----------------------------------------------
-
 G.input = createInput(renderer.domElement);
 const rig = createPlayer(player);
 G.playerRig = rig;
@@ -97,12 +98,10 @@ G.camera = rig.camera;
 scene.add(rig.camera);
 
 G.hud = createHUD(G);
-G.hud.hitmark = G.hud.hitmarker; // weapons.js asks for hitmark; hud named it hitmarker
+G.hud.hitmark = G.hud.hitmarker;
 
 G.match = createMatch(G);
 
-// The HUD buys with a bare item id for the local player; rounds.js buys with
-// (actor, kind, id). Adapt once, here, so both call shapes work.
 const rawBuy = G.match.buy;
 G.match.buy = function (a, b, c) {
 	if (typeof a === "string") {
@@ -112,7 +111,6 @@ G.match.buy = function (a, b, c) {
 	return rawBuy(a, b, c);
 };
 
-// Kills: actors.js fires this exactly once per death (inside applyDamage).
 G.onKill = (attacker, victim, part) => {
 	G.match.handleKill(attacker, victim);
 	const wid = attacker ? currentWeapon(attacker) : null;
@@ -122,13 +120,11 @@ G.onKill = (attacker, victim, part) => {
 	});
 };
 
-// --- menu / pause flow --------------------------------------------------------------
-
 function lockPointer() {
 	try {
 		const p = G.input.lock();
 		if (p && p.catch) p.catch(() => {});
-	} catch { /* a too-fast relock is fine; the next click retries */ }
+	} catch {  }
 }
 
 G.onPlay = () => {
@@ -150,16 +146,13 @@ G.onResume = () => {
 };
 let wasLocked = false;
 G.input.onLockChange = (locked) => {
-	// Pause only when a lock we actually held is lost (Esc). A failed lock
-	// request — no gesture, browser still cooling down — is not a pause.
+
 	if (!locked && wasLocked && !G.shot && ["freeze", "live", "planted", "end"].includes(G.match.phase)) {
 		G.paused = true;
 		releaseTrigger(player);
 	}
 	wasLocked = locked;
 };
-
-// --- discrete input events --------------------------------------------------------------
 
 let buyOpen = false;
 function setBuy(open) {
@@ -179,8 +172,6 @@ G.input.on("buy", () => {
 	if (G.match.phase === "freeze" && player.alive) setBuy(!buyOpen);
 });
 
-// --- fixed-step simulation --------------------------------------------------------------
-
 const STEP = 1 / CFG.simRate;
 const lookDir = new THREE.Vector3();
 let lastPhase = "menu";
@@ -199,7 +190,6 @@ function step(dt) {
 			rig.update(dt, G.input, G);
 		}
 
-		// bot brains run while a round is in progress
 		if (!G.shot && (phase === "freeze" || phase === "live" || phase === "planted")) {
 			for (const a of G.actors) if (a.mind && a.alive) a.mind.update(dt, G);
 		}
@@ -207,8 +197,6 @@ function step(dt) {
 		routePlayerCombat(dt);
 		updateWeapons(G, dt);
 
-		// safety net: nobody may fall out of the world — put them back at
-		// their own spawn with a stopped fall instead of losing them
 		for (const a of G.actors) {
 			if (a.pos.y < -8) {
 				const mates = G.actors.filter((x) => x.team === a.team);
@@ -219,19 +207,16 @@ function step(dt) {
 		}
 	}
 
-	// buy menu follows the freeze phase
 	if (phase === "freeze" && lastPhase !== "freeze" && !G.shot) setBuy(true);
 	if (phase !== "freeze" && lastPhase === "freeze") setBuy(false);
 	lastPhase = phase;
 
-	// viewmodel follows the weapon in hand
 	const wid = currentWeapon(player);
 	if (wid !== lastWeaponId) {
 		lastWeaponId = wid;
 		rig.setWeapon(wid);
 	}
 
-	// HUD mirrors the HUD reads off the player actor
 	player.flash01 = clamp((player.flashT || 0) / (GRENADES.flash.duration || 2.2), 0, 1);
 	if (M.channel) {
 		G.hud.progress(M.channel.kind === "plant" ? "PLANTING" : "DEFUSING", M.channel.t / M.channel.dur);
@@ -239,7 +224,6 @@ function step(dt) {
 		G.hud.progress(null, 0);
 	}
 
-	// damage direction: hp dropped and we know who did it
 	if (player.hp < lastPlayerHp && player.lastAttacker && player.alive) {
 		const atk = player.lastAttacker;
 		const fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);
@@ -256,7 +240,6 @@ function routePlayerCombat(dt) {
 	if (G.shot || G.paused) return;
 	const inRound = M.phase === "live" || M.phase === "planted";
 
-	// planting is a hold-E channel; releasing E cancels it
 	if (M.phase === "live" && player.alive && player.hasBomb && G.input.keys.has("KeyE")) {
 		M.requestPlant(player);
 	}
@@ -270,7 +253,6 @@ function routePlayerCombat(dt) {
 		return;
 	}
 
-	// mouse wheel cycles weapon slots
 	const wheel = G.input.consumeWheel();
 	if (wheel !== 0) {
 		const cur = (player.loadout.slot || 1) + (wheel > 0 ? 1 : -1);
@@ -285,28 +267,36 @@ function routePlayerCombat(dt) {
 	}
 }
 
-// --- screenshot scenes ----------------------------------------------------------------------
-
 function nodePos(name) {
 	const n = G.world.graph.nodes.get(name);
 	return n ? n.pos : new THREE.Vector3();
 }
 
 function setupShot(mode) {
-	G.match.startMatch(); // freeze phase, everyone at spawn, bomb handed out
+	const byName = (team, name) => G.actors.find((a) => a.team === team && a.name === name);
 	const cam = G.camera;
 	const eye = new THREE.Vector3();
 
+	if (mode === "menu" || mode === "menu2") {
+
+		if (mode === "menu") {
+			cam.position.set(-16, 4.22, -18);
+			cam.lookAt(-28, 1.6, -22);
+		} else {
+			cam.position.set(18, 3.2, 13);
+			cam.lookAt(28, 1.8, 23);
+		}
+		return;
+	}
+
+	G.match.startMatch();
+
 	if (mode === "start") {
-		// staged inside the hall mouth at a_hall, not at spawn: the spawn
-		// view is a blank yard wall, while this frames the whole furnace
-		// hall — the round is about to hit it, teammates up ahead, the
-		// furnace glowing at range (v2: from a_main the core face filled
-		// half the frame as a blown-out quad), buy menu open over it
+
 		player.pos.copy(nodePos("a_hall"));
-		const vex = G.actors.find((a) => a.team === 0 && a.name === "Vex");
+		const vex = byName(0, "Vex");
 		vex.pos.copy(nodePos("a_site")); vex.pos.x += 2.5;
-		const rho = G.actors.find((a) => a.team === 0 && a.name === "Rho");
+		const rho = byName(0, "Rho");
 		rho.pos.copy(nodePos("a_main"));
 		for (const a of G.actors) a.mesh.position.copy(a.pos);
 		eye.copy(player.pos); eye.y += CFG.eyeStand;
@@ -316,36 +306,76 @@ function setupShot(mode) {
 		return;
 	}
 
-	if (mode === "play") {
+	if (mode === "play" || mode === "duel") {
 		const M = G.match;
 		M.phase = "live"; M.phaseT = 73; M.timeLeft = 73;
 		giveWeapon(player, "vulcan");
 		selectWeapon(player, "vulcan");
 		rig.setWeapon("vulcan");
-		player.pos.copy(nodePos("a_link"));
-		const target = G.actors.find((a) => a.team === 1 && a.name === "Warden");
-		// v2: pulled in from the far site corner into the hall's lit middle
-		// so the new soldier model actually reads in frame, and put into
-		// combat aim (actors.js setPose keys off _combatT)
-		target.pos.set(-23.5, 0, -20.5);
+
+		player.pos.copy(nodePos(mode === "duel" ? "a_stairs" : "a_link"));
+		const target = byName(1, "Warden");
+
+		target.pos.set(-24.8, 0, -21.5);
 		target.yaw = Math.atan2(player.pos.x - target.pos.x, player.pos.z - target.pos.z);
 		target._combatT = 5;
-		const second = G.actors.find((a) => a.team === 1 && a.name === "Piston");
+		const second = byName(1, "Piston");
 		second.pos.copy(nodePos("a_cover1"));
 		second.yaw = Math.atan2(player.pos.x - second.pos.x, player.pos.z - second.pos.z);
 		second._combatT = 5;
-		const mate = G.actors.find((a) => a.team === 0 && a.name === "Vex");
+		const mate = byName(0, "Vex");
 		mate.pos.copy(nodePos("a_door"));
 		for (const a of G.actors) a.mesh.position.copy(a.pos);
 		eye.copy(player.pos); eye.y += CFG.eyeStand;
 		cam.position.copy(eye);
 		const chest = new THREE.Vector3(target.pos.x, target.pos.y + 1.3, target.pos.z);
 		cam.lookAt(chest);
-		// one live burst in the composed frame: tracer, muzzle, hitmarker
+
+		target.hp = 100000;
 		lookDir.subVectors(chest, eye).normalize();
-		fire(G, player, lookDir);
-		fire(G, player, lookDir);
-		G.hud.hitmarker(false);
+		const st = player.loadout.states?.vulcan;
+		G._shotBurst = () => {
+			if (st) st.ammo = 30;
+			fire(G, player, lookDir);
+			fire(G, player, lookDir);
+			G.hud.hitmarker(false);
+		};
+		G._shotBurst();
+		return;
+	}
+
+	if (mode === "snow") {
+
+		const M = G.match;
+		M.phase = "live"; M.phaseT = 41; M.timeLeft = 41;
+		giveWeapon(player, "vulcan");
+		selectWeapon(player, "vulcan");
+		rig.setWeapon("vulcan");
+		player.pos.set(18.0, 0, 12.0);
+		const target = byName(1, "Warden");
+		target.pos.set(21.5, 0, 21.5);
+		target.yaw = Math.atan2(player.pos.x - target.pos.x, player.pos.z - target.pos.z);
+		target._combatT = 5;
+		const mate = byName(0, "Vex");
+		mate.pos.copy(nodePos("b_cover1"));
+		mate.yaw = Math.atan2(27 - mate.pos.x, 22 - mate.pos.z);
+		mate._combatT = 5;
+		for (const a of G.actors) a.mesh.position.copy(a.pos);
+		eye.copy(player.pos); eye.y += CFG.eyeStand;
+		cam.position.copy(eye);
+		cam.lookAt(22.5, 1.1, 21.8);
+
+		target.hp = 100000;
+		const chest = new THREE.Vector3(target.pos.x, target.pos.y + 1.3, target.pos.z);
+		lookDir.subVectors(chest, eye).normalize();
+		const st = player.loadout.states?.vulcan;
+		G._shotBurst = () => {
+			if (st) st.ammo = 30;
+			fire(G, player, lookDir);
+			fire(G, player, lookDir);
+			G.hud.hitmarker(false);
+		};
+		G._shotBurst();
 		return;
 	}
 
@@ -357,16 +387,16 @@ function setupShot(mode) {
 		const plantPos = G.world.sites.A.plantPos.clone();
 		M.bomb = { state: "planted", carrier: null, site: "A", pos: plantPos, t: 16, planted: true, action: "defuse", progress: 0.55 };
 		M.bombPlanted = true; M.bombPos = plantPos; M.bombSite = "A";
-		const guard = G.actors.find((a) => a.team === 1 && a.name === "Warden");
+		const guard = byName(1, "Warden");
 		guard.pos.copy(plantPos); guard.pos.x += 1.1;
 		guard.crouch01 = 1;
-		guard.yaw = Math.PI / 2; // face the charge (and the incoming player)
+		guard.yaw = Math.PI / 2;
 		guard.defusing = true;
-		// the real channel state, so the HUD progress bar stays alive
+
 		M.channel = { actor: guard, kind: "defuse", t: 2.7, dur: 5, site: "A", x: guard.pos.x, z: guard.pos.z };
 		player.pos.copy(nodePos("a_site"));
 		player.pos.x -= 7;
-		player.pos.z -= 3.5; // off the sign-post's line: a slight diagonal
+		player.pos.z -= 3.5;
 		for (const a of G.actors) a.mesh.position.copy(a.pos);
 		eye.copy(player.pos); eye.y += CFG.eyeStand;
 		cam.position.copy(eye);
@@ -376,8 +406,6 @@ function setupShot(mode) {
 }
 
 if (shotMode) setupShot(shotMode);
-
-// --- render loop ------------------------------------------------------------------------------
 
 let last = performance.now();
 let acc = 0;
@@ -398,19 +426,23 @@ function frame(now) {
 	}
 	if (steps === 5) acc = 0;
 
-	// menu backdrop: a slow orbit over the foundry yard
 	if (!G.shot && G.match.phase === "menu") {
 		const t = G.time * 0.05;
 		G.camera.position.set(Math.cos(t) * 34, 13, Math.sin(t) * 34);
 		G.camera.lookAt(0, 2, 0);
 	}
 
+	if (G._shotBurst && G.time - (G._shotBurstT || 0) > 0.05) {
+		G._shotBurstT = G.time;
+		G._shotBurst();
+	}
+
 	G.world.update(frameDt, G.time);
+	G.weather.update(frameDt, G.camera.position);
 	G.effects.update(frameDt);
 	for (const a of G.actors) a.setPose(frameDt);
 	G.hud.update(frameDt);
 
-	// trauma shake rides on top of the rig camera for this frame only
 	G.camera.position.add(G.effects.shakeOffset);
 	renderer.render(scene, G.camera);
 	G.camera.position.sub(G.effects.shakeOffset);

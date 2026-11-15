@@ -1,11 +1,7 @@
-// util.js - shared maths, the seeded RNG, temp objects and the collision
-// mover every actor (player and bots alike) walks the world with.
-// Nothing here allocates in a hot loop: temps are module-level and reused.
-
+// util.js - seeded RNG, math helpers, and the collision kit (ray vs AABB, line of sight, the slide mover).
 import * as THREE from "three";
 import { CFG } from "./config.js";
 
-// --- seeded RNG (mulberry32): same seed, same match -------------------------
 export function rng(seed) {
 	let a = seed >>> 0;
 	return function next() {
@@ -29,7 +25,6 @@ export const lerp = (a, b, t) => a + (b - a) * t;
 export const deg2rad = (d) => (d * Math.PI) / 180;
 export const TAU = Math.PI * 2;
 
-// Shortest-path angle lerp, angles in radians.
 export function angleLerp(a, b, t) {
 	let d = (b - a) % TAU;
 	if (d > Math.PI) d -= TAU;
@@ -37,21 +32,16 @@ export function angleLerp(a, b, t) {
 	return a + d * t;
 }
 
-// Frame-rate independent exponential approach.
 export function damp(cur, target, lambda, dt) {
 	return lerp(cur, target, 1 - Math.exp(-lambda * dt));
 }
 
-// --- shared temps (never hold these across calls) ---------------------------
 export const tmpV1 = new THREE.Vector3();
 export const tmpV2 = new THREE.Vector3();
 export const tmpV3 = new THREE.Vector3();
 export const tmpV4 = new THREE.Vector3();
 const tmpBox = new THREE.Box3();
 
-// --- ray vs AABB (slab method) ----------------------------------------------
-// Returns the entry distance along the ray, or Infinity when it misses.
-// A ray starting inside the box returns 0.
 export function rayVsAABB(origin, dir, box, maxT = Infinity) {
 	let tmin = 0;
 	let tmax = maxT;
@@ -73,7 +63,6 @@ export function rayVsAABB(origin, dir, box, maxT = Infinity) {
 	return tmin;
 }
 
-// Line-of-sight helper: true when nothing in `colliders` blocks origin→target.
 export function hasLOS(origin, target, colliders) {
 	tmpV1.subVectors(target, origin);
 	const dist = tmpV1.length();
@@ -85,17 +74,10 @@ export function hasLOS(origin, target, colliders) {
 	return true;
 }
 
-// --- the actor mover ----------------------------------------------------------
-// pos is the actor's FEET position. The actor is treated as an AABB of
-// CFG.actorRadius half-extent and CFG.actorHeight height. Movement is resolved
-// axis by axis (Y, then X, then Z) with a small step-up for curbs and stairs.
-// vel is mutated when an axis is blocked. Returns { grounded, hitWall }.
 const actorBox = new THREE.Box3();
 
 function setActorBox(pos) {
-	// The box bottom rides 2 cm above the feet: Box3 intersection counts a
-	// floor the actor stands ON (touching faces) as an overlap, and the XZ
-	// passes would then shove the actor sideways off its own floor slab.
+
 	actorBox.min.set(pos.x - CFG.actorRadius, pos.y + 0.02, pos.z - CFG.actorRadius);
 	actorBox.max.set(pos.x + CFG.actorRadius, pos.y + CFG.actorHeight, pos.z + CFG.actorRadius);
 }
@@ -113,10 +95,6 @@ export function slideMove(pos, vel, dt, colliders) {
 	const r = CFG.actorRadius;
 	const h = CFG.actorHeight;
 
-	// Y axis: gravity, landing, head bumps. A collider only counts as a
-	// floor when the feet were at or above its top before this move, and
-	// only as a ceiling when the head started below its base — a side
-	// overlap with a tall wall must never teleport the actor onto its roof.
 	const prevY = pos.y;
 	pos.y += vel.y * dt;
 	let hit = null;
@@ -134,7 +112,7 @@ export function slideMove(pos, vel, dt, colliders) {
 		else { pos.y = ceilBase - h; }
 		vel.y = 0;
 	} else if (vel.y <= 0) {
-		// grounded also when standing exactly on a surface (within a hair)
+
 		tmpBox.min.set(pos.x - r, pos.y - 0.02, pos.z - r);
 		tmpBox.max.set(pos.x + r, pos.y + h, pos.z + r);
 		for (let i = 0; i < colliders.length; i++) {
@@ -145,10 +123,6 @@ export function slideMove(pos, vel, dt, colliders) {
 		}
 	}
 
-	// Push-out side: follow the velocity when there is one; when the actor
-	// is standing still inside a box (a spawn touching a wall), exit by the
-	// NEAREST face — defaulting to one fixed side chains the actor box by
-	// box across the whole map.
 	const exitX = (box) => {
 		if (vel.x > 0) return box.min.x - r - 0.001;
 		if (vel.x < 0) return box.max.x + r + 0.001;
@@ -160,7 +134,6 @@ export function slideMove(pos, vel, dt, colliders) {
 		return pos.z - box.min.z < box.max.z - pos.z ? box.min.z - r - 0.001 : box.max.z + r + 0.001;
 	};
 
-	// X axis, with step-up.
 	pos.x += vel.x * dt;
 	hit = overlapsAny(pos, colliders);
 	if (hit) {
@@ -181,7 +154,6 @@ export function slideMove(pos, vel, dt, colliders) {
 		}
 	}
 
-	// Z axis, with step-up.
 	pos.z += vel.z * dt;
 	hit = overlapsAny(pos, colliders);
 	if (hit) {

@@ -1,47 +1,15 @@
-// hud.js - every piece of 2D interface in Ashfall Foundry.
-// Per the SPEC amendment this module builds ALL of its own DOM: one root
-// div (#hud-root) and one injected <style>, appended to <body>;
-// index.html only provides the mount point. Elements are created once
-// here and cached - update() writes text and style only when a value
-// actually changed, and nothing in the frame path queries the document.
-//
-// Data is read from G defensively (optional chaining throughout):
-// rounds.js and weapons.js land in parallel, so match and loadout shapes
-// go through the small adapters below (timerSeconds, ammoOf,
-// grenadeCount, ownedOf). Each tries the documented shape first, then
-// the plausible flat field. The shapes this module expects:
-//   G.match.phase    "menu"|"freeze"|"live"|"planted"|"end"|"over"
-//   G.match.phaseT   seconds elapsed in the current phase
-//   G.match.timeLeft seconds left in the phase (wins over phaseT if set)
-//   G.match.score    [emberRounds, guardRounds]
-//   G.match.roundNum current round, 1-based
-//   G.match.history  array of round winners (0/1), for the pips
-//   G.match.bomb     { planted, site:"A"|"B", t: seconds to detonation,
-//                      action:"plant"|"defuse", progress: 0..1 }
-//   actor.money / hp / armor / helmet / kills / deaths
-//   actor.loadout    { current: weaponId, states: {id:{ammo,reserve}},
-//                      grenades: {frag,smoke,flash} }
-//   G.getSpread01()  optional: current spread as 0..1 for the crosshair
-
+// hud.js - all 2D interface: HUD, buy menu, scoreboard, banners, and the main menu with its weather picker.
 import { CFG, WEAPONS, ARMOR, GRENADES, BUY } from "./config.js";
 
 const CSS = `
-#hud-root{position:fixed;inset:0;pointer-events:none;z-index:20;overflow:hidden;
- font-family:system-ui,"Segoe UI",Roboto,sans-serif;color:#ece7db;
- --ember:#ff7a26;--guard:#2fd4c4;--panel:rgba(9,14,17,.72);
- --line:rgba(255,255,255,.10);--dim:#98a2a8;--bad:#ff5340;
- -webkit-user-select:none;user-select:none}
-#hud-root .num{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;
- font-variant-numeric:tabular-nums}
+#hud-root{position:fixed;inset:0;pointer-events:none;z-index:20;overflow:hidden;font-family:system-ui,"Segoe UI",Roboto,sans-serif;color:#ece7db;--ember:#ff7a26;--guard:#2fd4c4;--panel:rgba(9,14,17,.72);--line:rgba(255,255,255,.10);--dim:#98a2a8;--bad:#ff5340;-webkit-user-select:none;user-select:none}
+#hud-root .num{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-variant-numeric:tabular-nums}
 #hud-root[data-phase="menu"] .af-ingame,#hud-root[data-phase="over"] .af-ingame{display:none}
-.af-vig{position:absolute;inset:0;opacity:0;transition:opacity .25s;
- background:radial-gradient(ellipse at center,transparent 52%,rgba(190,10,0,.55) 100%)}
+.af-vig{position:absolute;inset:0;opacity:0;transition:opacity .25s;background:radial-gradient(ellipse at center,transparent 52%,rgba(190,10,0,.55) 100%)}
 .af-flash{position:absolute;inset:0;background:#fff;opacity:0}
-.af-top{position:absolute;top:10px;left:50%;transform:translateX(-50%);
- display:flex;flex-direction:column;align-items:center;gap:3px}
+.af-top{position:absolute;top:10px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:3px}
 .af-round{font-size:11px;letter-spacing:.28em;color:var(--dim)}
-.af-score{display:flex;align-items:center;gap:14px;background:var(--panel);
- border:1px solid var(--line);border-radius:6px;padding:4px 16px 5px}
+.af-score{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px 16px 5px}
 .af-score .side{font-size:22px;font-weight:700}
 .af-score .e{color:var(--ember)} .af-score .g{color:var(--guard)}
 .af-timer{font-size:26px;font-weight:700;min-width:74px;text-align:center}
@@ -51,21 +19,17 @@ const CSS = `
 .af-pip.e{background:var(--ember)} .af-pip.g{background:var(--guard)}
 .af-bomb{display:none;flex-direction:column;align-items:center;gap:3px;margin-top:2px}
 .af-bomb.on{display:flex}
-.af-bomb .txt{color:#ffb03a;font-weight:700;letter-spacing:.14em;font-size:13px;
- animation:afpulse 1s infinite}
+.af-bomb .txt{color:#ffb03a;font-weight:700;letter-spacing:.14em;font-size:13px;animation:afpulse 1s infinite}
 @keyframes afpulse{50%{opacity:.45}}
 .af-bombbar{width:190px;height:5px;background:rgba(255,255,255,.15);border-radius:3px}
 .af-bombbar i{display:block;height:100%;background:#ffb03a;border-radius:3px}
-.af-kf{position:absolute;top:12px;right:14px;display:flex;flex-direction:column;
- gap:4px;align-items:flex-end}
-.af-kfrow{background:var(--panel);border:1px solid var(--line);border-radius:4px;
- padding:3px 9px;font-size:13px;white-space:nowrap}
+.af-kf{position:absolute;top:12px;right:14px;display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+.af-kfrow{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:3px 9px;font-size:13px;white-space:nowrap}
 .af-kfrow .e{color:var(--ember)} .af-kfrow .g{color:var(--guard)}
 .af-kfrow .wp{color:var(--dim);margin:0 6px;font-size:11px;letter-spacing:.08em}
 .af-kfrow .skull{color:#ffd23a;margin-left:5px}
 .af-bl{position:absolute;left:18px;bottom:16px;display:flex;flex-direction:column;gap:5px}
-.af-teamtag{display:flex;align-items:center;gap:7px;font-size:12px;
- letter-spacing:.18em;font-weight:700;color:var(--ember)}
+.af-teamtag{display:flex;align-items:center;gap:7px;font-size:12px;letter-spacing:.18em;font-weight:700;color:var(--ember)}
 .af-teamtag .sq{width:10px;height:10px;background:var(--ember);border-radius:2px}
 .af-teamtag .sub{color:var(--dim);font-weight:400;letter-spacing:.06em}
 .af-stat{display:flex;align-items:center;gap:8px}
@@ -74,8 +38,7 @@ const CSS = `
 .af-bar i{display:block;height:100%;background:#e8e2d2;transition:width .15s}
 .af-bar.arm i{background:#7fb3c8}
 .af-stat .val{font-size:17px;font-weight:700;min-width:36px}
-.af-br{position:absolute;right:18px;bottom:16px;display:flex;flex-direction:column;
- align-items:flex-end;gap:3px}
+.af-br{position:absolute;right:18px;bottom:16px;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .af-money{font-size:17px;font-weight:700;color:#9ed67e}
 .af-wname{font-size:13px;letter-spacing:.12em;color:var(--dim)}
 .af-ammo{display:flex;align-items:baseline;gap:7px}
@@ -83,54 +46,42 @@ const CSS = `
 .af-ammo .res{font-size:16px;color:var(--dim)}
 .af-ammo.low .big{color:var(--bad)}
 .af-nades{display:flex;gap:6px;margin-top:2px}
-.af-nade{border:1px solid var(--line);background:var(--panel);border-radius:4px;
- padding:2px 7px;font-size:11px;letter-spacing:.08em;color:var(--dim)}
+.af-nade{border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:2px 7px;font-size:11px;letter-spacing:.08em;color:var(--dim)}
 .af-nade.have{color:#ece7db;border-color:rgba(255,255,255,.35)}
 .af-cross{position:absolute;left:50%;top:50%;width:0;height:0;--gap:9px}
-.af-cross span{position:absolute;background:rgba(240,255,240,.92);
- box-shadow:0 0 3px rgba(0,0,0,.8)}
+.af-cross span{position:absolute;background:rgba(240,255,240,.92);box-shadow:0 0 3px rgba(0,0,0,.8)}
 .af-cross .t{width:2px;height:9px;left:-1px;bottom:var(--gap)}
 .af-cross .b{width:2px;height:9px;left:-1px;top:var(--gap)}
 .af-cross .l{width:9px;height:2px;right:var(--gap);top:-1px}
 .af-cross .r{width:9px;height:2px;left:var(--gap);top:-1px}
 .af-cross .dot{width:2px;height:2px;left:-1px;top:-1px}
 .af-hit{position:absolute;left:50%;top:50%;width:0;height:0;opacity:0}
-.af-hit span{position:absolute;width:10px;height:2px;background:#fff;
- box-shadow:0 0 3px rgba(0,0,0,.7)}
+.af-hit span{position:absolute;width:10px;height:2px;background:#fff;box-shadow:0 0 3px rgba(0,0,0,.7)}
 .af-hit .a{right:7px;bottom:7px;transform:rotate(45deg)}
 .af-hit .b{left:7px;bottom:7px;transform:rotate(-45deg)}
 .af-hit .c{right:7px;top:7px;transform:rotate(-45deg)}
 .af-hit .d{left:7px;top:7px;transform:rotate(45deg)}
 .af-hit.kill span{background:#ff4030}
 .af-dmgc{position:absolute;left:50%;top:50%;width:0;height:0}
-.af-arc{position:absolute;left:-80px;top:-80px;width:160px;height:160px;
- border-radius:50%;border:5px solid transparent;border-top-color:rgba(255,64,40,.9);
- opacity:0}
-.af-prog{position:absolute;left:50%;top:60%;transform:translateX(-50%);
- display:none;flex-direction:column;align-items:center;gap:5px}
+.af-arc{position:absolute;left:-80px;top:-80px;width:160px;height:160px;border-radius:50%;border:5px solid transparent;border-top-color:rgba(255,64,40,.9);opacity:0}
+.af-prog{position:absolute;left:50%;top:60%;transform:translateX(-50%);display:none;flex-direction:column;align-items:center;gap:5px}
 .af-prog.on{display:flex}
 .af-prog .lab{font-size:13px;font-weight:700;letter-spacing:.22em}
 .af-prog .bar{width:280px;height:8px;background:rgba(255,255,255,.15);border-radius:4px}
 .af-prog .bar i{display:block;height:100%;background:var(--ember);border-radius:4px}
-.af-buyhint{position:absolute;left:50%;bottom:110px;transform:translateX(-50%);
- font-size:13px;color:var(--dim);letter-spacing:.14em;display:none}
+.af-buyhint{position:absolute;left:50%;bottom:110px;transform:translateX(-50%);font-size:13px;color:var(--dim);letter-spacing:.14em;display:none}
 .af-buyhint.on{display:block}
-.af-banner{position:absolute;left:50%;top:26%;transform:translate(-50%,-50%);
- text-align:center;opacity:0;transition:opacity .3s}
+.af-banner{position:absolute;left:50%;top:26%;transform:translate(-50%,-50%);text-align:center;opacity:0;transition:opacity .3s}
 .af-banner.on{opacity:1}
 .af-banner h1{margin:0;font-size:42px;letter-spacing:.12em;font-weight:800}
 .af-banner p{margin:4px 0 0;font-size:15px;color:var(--dim);letter-spacing:.1em}
-.af-panel{pointer-events:auto;background:var(--panel);border:1px solid var(--line);
- border-radius:10px;backdrop-filter:blur(7px)}
-.af-buy{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
- display:none;padding:16px 18px}
+.af-panel{pointer-events:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;backdrop-filter:blur(7px)}
+.af-buy{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:none;padding:16px 18px}
 .af-buy.on{display:block}
-.af-buy h2{margin:0 0 10px;font-size:16px;letter-spacing:.18em;display:flex;
- justify-content:space-between;gap:30px}
+.af-buy h2{margin:0 0 10px;font-size:16px;letter-spacing:.18em;display:flex;justify-content:space-between;gap:30px}
 .af-buy h2 .num{color:#9ed67e}
 .af-buygrid{display:grid;grid-template-columns:repeat(3,168px);gap:8px}
-.af-item{position:relative;border:1px solid var(--line);border-radius:6px;
- padding:8px 10px;cursor:pointer;background:rgba(255,255,255,.03)}
+.af-item{position:relative;border:1px solid var(--line);border-radius:6px;padding:8px 10px;cursor:pointer;background:rgba(255,255,255,.03)}
 .af-item:hover{border-color:rgba(255,255,255,.4)}
 .af-item .key{position:absolute;top:5px;right:7px;font-size:10px;color:var(--dim)}
 .af-item .nm{font-size:13px;font-weight:700;padding-right:14px}
@@ -139,35 +90,30 @@ const CSS = `
 .af-item.owned .pr{color:#9ed67e}
 .af-item.poor{opacity:.42;cursor:default}
 .af-buy .hint{margin-top:10px;font-size:11px;color:var(--dim);letter-spacing:.08em}
-.af-board{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
- display:none;padding:14px 18px;min-width:430px}
+.af-board{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:none;padding:14px 18px;min-width:430px}
 .af-board.on{display:block}
 .af-board h3{margin:8px 0 6px;font-size:13px;letter-spacing:.2em}
 .af-board h3.e{color:var(--ember)} .af-board h3.g{color:var(--guard)}
-.af-brow{display:grid;grid-template-columns:1fr 42px 42px 74px 12px;gap:6px;
- font-size:13px;padding:2px 0}
+.af-brow{display:grid;grid-template-columns:1fr 42px 42px 74px 12px;gap:6px;font-size:13px;padding:2px 0}
 .af-brow.head{color:var(--dim);font-size:11px;letter-spacing:.1em}
 .af-brow.dead{opacity:.45}
 .af-brow .dot{width:8px;height:8px;border-radius:50%;background:#9ed67e;align-self:center}
 .af-brow.dead .dot{background:#666}
-.af-overlay{position:absolute;inset:0;display:none;flex-direction:column;
- align-items:center;justify-content:center;gap:14px;pointer-events:auto;
- background:rgba(5,8,10,.62);backdrop-filter:blur(3px);text-align:center}
+.af-overlay{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;pointer-events:auto;background:rgba(5,8,10,.5);backdrop-filter:blur(2px);text-align:center}
 .af-overlay.on{display:flex}
-.af-title{font-size:56px;font-weight:800;letter-spacing:.14em;margin:0;
- background:linear-gradient(92deg,#ffb03a,#ff7a26 45%,#2fd4c4);
- -webkit-background-clip:text;background-clip:text;color:transparent}
+.af-title{font-size:56px;font-weight:800;letter-spacing:.14em;margin:0;background:linear-gradient(92deg,#ffb03a,#ff7a26 45%,#2fd4c4);-webkit-background-clip:text;background-clip:text;color:transparent}
 .af-sub{color:var(--dim);letter-spacing:.22em;font-size:13px}
-.af-btn{pointer-events:auto;background:var(--ember);color:#14100c;border:0;
- border-radius:6px;font-size:18px;font-weight:800;letter-spacing:.14em;
- padding:12px 44px;cursor:pointer}
+.af-btn{pointer-events:auto;background:var(--ember);color:#14100c;border:0;border-radius:6px;font-size:18px;font-weight:800;letter-spacing:.14em;padding:12px 44px;cursor:pointer}
 .af-btn:hover{filter:brightness(1.12)}
-.af-controls{display:grid;grid-template-columns:auto auto;gap:5px 16px;
- font-size:13px;color:var(--dim);text-align:left;margin-top:6px}
-.af-controls b{color:#ece7db;font-weight:600;text-align:right;
- font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.af-controls{display:grid;grid-template-columns:auto auto;gap:5px 16px;font-size:13px;color:var(--dim);text-align:left;margin-top:6px}
+.af-controls b{color:#ece7db;font-weight:600;text-align:right;font-family:ui-monospace,Consolas,monospace;font-size:12px}
 .af-note{font-size:11px;color:var(--dim);letter-spacing:.06em}
 .af-final{font-size:30px;font-weight:800;letter-spacing:.1em}
+.af-wrow{display:flex;align-items:center;gap:8px;pointer-events:auto}
+.af-wrow .lab{font-size:11px;letter-spacing:.22em;color:var(--dim)}
+.af-wbtn{background:rgba(255,255,255,.05);color:var(--dim);border:1px solid var(--line);border-radius:5px;font-size:12px;font-weight:700;letter-spacing:.12em;padding:6px 14px;cursor:pointer}
+.af-wbtn:hover{color:#ece7db;border-color:rgba(255,255,255,.4)}
+.af-wbtn.on{color:#14100c;background:var(--ember);border-color:transparent}
 `;
 
 function make(tag, cls, text) {
@@ -183,8 +129,6 @@ const fmtClock = (s) => {
 	return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
 };
 
-// Seconds left in the current phase: explicit timeLeft wins, otherwise
-// the phase duration from CFG minus the elapsed phaseT.
 function timerSeconds(m) {
 	if (!m) return null;
 	if (typeof m.timeLeft === "number") return m.timeLeft;
@@ -198,7 +142,6 @@ function timerSeconds(m) {
 	}
 }
 
-// Current weapon state through the loadout shapes weapons.js may use.
 function ammoOf(p) {
 	if (!p) return { id: null, ammo: null, reserve: null };
 	const lo = p.loadout;
@@ -248,7 +191,6 @@ export function createHUD(G) {
 	root.dataset.phase = "menu";
 	document.body.appendChild(root);
 
-	// --- static structure (built once, cached in `el`) -------------------------
 	const el = {};
 	el.vig = make("div", "af-vig");
 	el.flash = make("div", "af-flash");
@@ -352,7 +294,6 @@ export function createHUD(G) {
 	el.banner.append(el.bannerH, el.bannerP);
 	root.append(el.banner);
 
-	// --- buy menu ---------------------------------------------------------------
 	el.buy = make("div", "af-buy af-panel");
 	const buyHead = make("h2");
 	buyHead.append(make("span", null, "BUY MENU"));
@@ -375,7 +316,6 @@ export function createHUD(G) {
 		return { kind, id, el: cell, price: info?.price ?? 0 };
 	});
 
-	// --- scoreboard ---------------------------------------------------------------
 	el.board = make("div", "af-board af-panel");
 	root.append(el.board);
 	const boardRows = { 0: [], 1: [] };
@@ -398,7 +338,6 @@ export function createHUD(G) {
 		}
 	}
 
-	// --- match end ------------------------------------------------------------------
 	el.over = make("div", "af-overlay");
 	el.overTitle = make("div", "af-final", "");
 	el.overScore = make("div", "af-sub num", "");
@@ -408,20 +347,37 @@ export function createHUD(G) {
 	el.over.append(el.overTitle, el.overScore, el.overStats, againBtn);
 	root.append(el.over);
 
-	// --- pause ------------------------------------------------------------------------
 	el.pause = make("div", "af-overlay");
 	el.pause.append(make("div", "af-final", "PAUSED"),
 		make("div", "af-sub", "CLICK TO RESUME"));
 	el.pause.addEventListener("click", () => G.onResume?.());
 	root.append(el.pause);
 
-	// --- main menu ----------------------------------------------------------------------
 	el.menu = make("div", "af-overlay on");
 	el.menu.append(make("h1", "af-title", "ASHFALL FOUNDRY"),
-		make("div", "af-sub", "EMBER CELL vs FOUNDRY GUARD — A TACTICAL FOUNDRY RAID"));
+		make("div", "af-sub", "5V5 TACTICAL FPS — EMBER CELL vs FOUNDRY GUARD"));
 	const playBtn = make("button", "af-btn", "PLAY");
 	playBtn.addEventListener("click", () => G.onPlay?.());
 	el.menu.append(playBtn);
+
+	const wrow = make("div", "af-wrow");
+	wrow.append(make("span", "lab", "WEATHER"));
+	const wbtns = {};
+	function markWeather(id) {
+		for (const k of Object.keys(wbtns)) wbtns[k].classList.toggle("on", k === id);
+	}
+	for (const [id, label] of [["dusk", "☀ DUSK"], ["rain", "🌧 RAIN"], ["snow", "❄ SNOW"]]) {
+		const b = make("button", "af-wbtn", label);
+		b.addEventListener("click", () => {
+			try { localStorage.setItem("ashfall-weather", id); } catch {  }
+			G.onWeather?.(id);
+			markWeather(id);
+		});
+		wbtns[id] = b;
+		wrow.append(b);
+	}
+	markWeather(G.weatherMode ?? "dusk");
+	el.menu.append(wrow);
 	const controls = make("div", "af-controls");
 	const CONTROL_ROWS = [
 		["W A S D", "move"], ["MOUSE", "look"], ["LMB", "fire"], ["RMB", "aim / scope"],
@@ -435,10 +391,10 @@ export function createHUD(G) {
 	el.menu.append(controls,
 		make("div", "af-note",
 			"Plant the charge at A — Furnace or B — Cooling Yard. First to 7 rounds. " +
+			"Buy economy, team-tactics bots, dynamic weather. " +
 			"Runs in desktop Chrome, WebGL, no downloads."));
 	root.append(el.menu);
 
-	// --- mutable HUD state ---------------------------------------------------------------
 	let phase = "";
 	let bannerT = 0;
 	let hitT = 0;
@@ -448,8 +404,8 @@ export function createHUD(G) {
 	let overShown = false;
 	let boardT = 0;
 	let buySig = "";
-	let progOverride = null; // {label, frac} set through hud.progress()
-	const last = {}; // last-written values, so update() touches DOM on change only
+	let progOverride = null;
+	const last = {};
 	function setText(node, key, txt) {
 		if (last[key] !== txt) {
 			last[key] = txt;
@@ -465,10 +421,9 @@ export function createHUD(G) {
 	}
 
 	function buy(id) {
-		// rounds.js owns the rules (phase, money, slots); it returns
-		// whether the purchase went through and plays its own feedback.
+
 		G.match?.buy?.(id);
-		buySig = ""; // force a state refresh next update
+		buySig = "";
 	}
 
 	function refreshBuy() {
@@ -504,9 +459,6 @@ export function createHUD(G) {
 		}
 	}
 
-	// Number keys buy while the menu is open (input.js reserves 1–4 for
-	// weapon slots; while the buy grid is up, the grid wins - main.js can
-	// ignore slot events during the freeze phase).
 	window.addEventListener("keydown", (e) => {
 		if (!buyOpen) return;
 		let n = 0;
@@ -515,7 +467,6 @@ export function createHUD(G) {
 		if (n >= 1 && n <= BUY.length) buy(BUY[n - 1][1]);
 	});
 
-	// --- public API ---------------------------------------------------------------------
 	const api = {
 		banner(text, sub = "", color) {
 			el.bannerH.textContent = text;
@@ -525,8 +476,6 @@ export function createHUD(G) {
 			bannerT = 3.6;
 		},
 
-		// killfeed(killer, victim, {weapon, headshot}) - killer/victim are
-		// actors (or plain names); teams colour the names.
 		killfeed(killer, victim, opts = {}) {
 			if (killer && typeof killer === "object" && "killer" in killer) {
 				opts = killer;
@@ -549,7 +498,7 @@ export function createHUD(G) {
 			if (opts.headshot) row.append(make("span", "skull", "☠"));
 			row.style.display = "";
 			row.style.opacity = "1";
-			el.kf.prepend(row); // newest on top; prepend re-parents the pooled row
+			el.kf.prepend(row);
 		},
 
 		hitmarker(kill = false) {
@@ -558,8 +507,6 @@ export function createHUD(G) {
 			el.hit.style.opacity = "1";
 		},
 
-		// relRad: direction TO the attacker relative to the view, 0 ahead,
-		// positive to the right (clockwise seen from above).
 		damageFrom(relRad) {
 			const a = arcs[arcNext++ % arcs.length];
 			a.t = 0.9;
@@ -571,8 +518,6 @@ export function createHUD(G) {
 			flashLevel = Math.max(flashLevel, Math.max(0, Math.min(1, strength)));
 		},
 
-		// Explicit plant/defuse progress from rounds.js; pass null to
-		// clear. When unset, update() reads G.match.bomb instead.
 		progress(label, frac) {
 			progOverride = label == null ? null : { label, frac: frac ?? 0 };
 		},
@@ -598,8 +543,7 @@ export function createHUD(G) {
 			phase = m?.phase ?? "menu";
 			if (root.dataset.phase !== phase) root.dataset.phase = phase;
 
-			// overlays
-			const menuWanted = phase === "menu" && !G.shot;
+			const menuWanted = phase === "menu" && (!G.shot || G.shotMenu);
 			if (el.menu.classList.contains("on") !== menuWanted) {
 				el.menu.classList.toggle("on", menuWanted);
 			}
@@ -623,7 +567,6 @@ export function createHUD(G) {
 				el.over.classList.remove("on");
 			}
 
-			// --- round header -----------------------------------------------------
 			const score = m?.score ?? [0, 0];
 			setText(el.scoreE, "sE", String(score[0]));
 			setText(el.scoreG, "sG", String(score[1]));
@@ -643,7 +586,6 @@ export function createHUD(G) {
 				for (const h of hist) el.pips.append(make("span", "af-pip " + (h === 0 ? "e" : "g")));
 			}
 
-			// --- bomb state ---------------------------------------------------------
 			const bomb = m?.bomb;
 			const planted = !!bomb?.planted;
 			el.bomb.classList.toggle("on", planted);
@@ -663,7 +605,6 @@ export function createHUD(G) {
 			}
 			el.buyHint.classList.toggle("on", phase === "freeze" && !buyOpen);
 
-			// --- player vitals --------------------------------------------------------
 			const hp = Math.max(0, p?.hp ?? 100);
 			setText(el.hpVal, "hp", String(Math.ceil(hp)));
 			setWidth(el.hpFill, "hpFill", hp / 100);
@@ -678,7 +619,6 @@ export function createHUD(G) {
 				el.vig.style.opacity = vig.toFixed(2);
 			}
 
-			// --- weapon / money ---------------------------------------------------------
 			setText(el.money, "money", fmtMoney(p?.money ?? 0));
 			const am = ammoOf(p);
 			const wdef = am.id ? WEAPONS[am.id] : null;
@@ -700,7 +640,6 @@ export function createHUD(G) {
 				chip.classList.toggle("have", n > 0);
 			}
 
-			// --- crosshair ------------------------------------------------------------------
 			const spread01 = typeof G.getSpread01 === "function"
 				? G.getSpread01()
 				: (p?.spread01 ?? 0.18);
@@ -713,7 +652,6 @@ export function createHUD(G) {
 				p?.scoped || p?.alive === false || phase === "menu" || phase === "over";
 			el.cross.style.opacity = crossOff ? "0" : "1";
 
-			// --- timed elements ----------------------------------------------------------------
 			if (hitT > 0) {
 				hitT -= dt;
 				if (hitT <= 0) el.hit.style.opacity = "0";

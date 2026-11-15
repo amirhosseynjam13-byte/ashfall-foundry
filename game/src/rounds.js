@@ -1,24 +1,20 @@
-// rounds.js - the match brain: phases, the round timer, the bomb, the
-// economy and the score. It owns no rendering and no input; it mutates actor
-// state (through actors.js / weapons.js helpers) and talks to the HUD and
-// audio through G, so the whole match reads from one place: G.match.
-
+// rounds.js - the match brain: phases, the round timer, the bomb, the economy and the score.
 import { CFG, WEAPONS, ARMOR, GRENADES } from "./config.js";
 import { randPick } from "./util.js";
 import { giveWeapon, createLoadout, selectWeapon } from "./weapons.js";
 
 export function createMatch(G) {
 	const M = {
-		phase: "menu", // menu | freeze | live | planted | end | over
-		phaseT: 0, // seconds left in the current phase
+		phase: "menu",
+		phaseT: 0,
 		roundNum: 0,
-		score: [0, 0], // [ember, guard]
-		history: [], // round winners in order, for the HUD pips
-		timeLeft: 0, // mirrors phaseT for HUD/bots (phaseT counts down)
-		bombPlanted: false, bombPos: null, bombSite: null, // flat mirrors of bomb, for bots/HUD
+		score: [0, 0],
+		history: [],
+		timeLeft: 0,
+		bombPlanted: false, bombPos: null, bombSite: null,
 		lossStreak: [0, 0],
-		bomb: null, // { state: carried|dropped|planted|exploded|defused, carrier, site, pos, t }
-		channel: null, // { actor, kind: 'plant'|'defuse', t, dur, site }
+		bomb: null,
+		channel: null,
 		lastWinner: -1,
 		lastReason: "",
 		callSite: "A",
@@ -40,8 +36,6 @@ export function createMatch(G) {
 		return teamActors(team).reduce((n, a) => n + (a.alive ? 1 : 0), 0);
 	}
 
-	// --- match / round setup ---------------------------------------------------
-
 	function startMatch() {
 		M.score = [0, 0];
 		M.history = [];
@@ -58,7 +52,7 @@ export function createMatch(G) {
 	function startRound() {
 		M.roundNum++;
 		M.channel = null;
-		// the call: most rounds hit one site, sometimes the other
+
 		M.callSite = G.rng() < 0.55 ? "A" : "B";
 
 		const spawns = G.world.spawns;
@@ -68,7 +62,7 @@ export function createMatch(G) {
 				const s = spawns[team === 0 ? "ember" : "guard"][i % 5];
 				a.pos.copy(s);
 				a.vel.set(0, 0, 0);
-				a.yaw = team === 0 ? -Math.PI / 2 : Math.PI / 2; // face mid-field (-Z forward convention)
+				a.yaw = team === 0 ? -Math.PI / 2 : Math.PI / 2;
 				a.pitch = 0;
 				a.hp = 100;
 				a.alive = true;
@@ -78,10 +72,9 @@ export function createMatch(G) {
 				a.defusing = false;
 				a.mesh.position.copy(s);
 				a.mesh.rotation.set(0, 0, 0);
-				a.mesh.visible = !a.isPlayer; // first person: never render your own body
+				a.mesh.visible = !a.isPlayer;
 				if (!a.loadout) a.loadout = createLoadout();
-				// survivors keep their kit; the dead re-issue with a fresh
-				// loadout (createLoadout already puts knife + P9 in hand)
+
 				if (a.roundDied) {
 					a.loadout = createLoadout();
 					a.armor = 0;
@@ -91,13 +84,11 @@ export function createMatch(G) {
 			});
 		}
 
-		// hand the bomb to a random living Ember member
 		const ember = teamActors(0).filter((a) => a.alive);
 		const carrier = ember[Math.floor(G.rng() * ember.length)];
 		carrier.hasBomb = true;
 		M.bomb = { state: "carried", carrier, site: null, pos: null, t: 0 };
 
-		// bots get their orders for the round
 		for (const a of G.actors) {
 			if (a.mind) a.mind.reset({ callSite: M.callSite, roundNum: M.roundNum });
 			if (!a.isPlayer && a.alive) botBuy(a);
@@ -111,8 +102,6 @@ export function createMatch(G) {
 		M.phase = phase;
 		M.phaseT = t;
 	}
-
-	// --- economy -----------------------------------------------------------------
 
 	function award(team, amount) {
 		for (const a of teamActors(team)) {
@@ -129,9 +118,9 @@ export function createMatch(G) {
 		if (price < 0 || actor.money < price) return false;
 
 		if (kind === "weapon") {
-			if (actor.loadout.states && actor.loadout.states[id]) return false; // already own it
+			if (actor.loadout.states && actor.loadout.states[id]) return false;
 			giveWeapon(actor, id);
-			selectWeapon(actor, id); // a fresh purchase goes straight into the hands
+			selectWeapon(actor, id);
 		} else if (kind === "armor") {
 			if (id === "vest") {
 				if (actor.armor >= 100) return false;
@@ -142,7 +131,7 @@ export function createMatch(G) {
 				actor.helmet = true;
 			}
 		} else {
-			if (actor.loadout.grenades[id] >= 1) return false; // one of each, CS style
+			if (actor.loadout.grenades[id] >= 1) return false;
 			actor.loadout.grenades[id]++;
 		}
 		actor.money -= price;
@@ -150,8 +139,6 @@ export function createMatch(G) {
 		return true;
 	}
 
-	// Simple, believable bot shopping: rifle first, armour with the change,
-	// grenades when rich. Runs in freeze, spends through the same buy() rules.
 	function botBuy(actor) {
 		const tryBuy = (kind, id) => buy(actor, kind, id);
 		const st = actor.loadout && actor.loadout.states;
@@ -170,8 +157,6 @@ export function createMatch(G) {
 		if (actor.money >= 900) { tryBuy("grenade", "frag"); tryBuy("grenade", "smoke"); }
 		if (actor.money >= 500) tryBuy("grenade", "flash");
 	}
-
-	// --- bomb interactions ---------------------------------------------------------
 
 	function inSite(actor, siteName) {
 		const zone = G.world.sites[siteName].zone;
@@ -195,7 +180,7 @@ export function createMatch(G) {
 		if (M.phase !== "planted" || M.channel || !M.bomb || M.bomb.state !== "planted") return false;
 		const d = actor.pos.distanceTo(M.bomb.pos);
 		if (d > 2.2) return false;
-		const dur = actor.team === 1 ? CFG.defuseTimeKit : CFG.defuseTimeNoKit; // Guard carry kits
+		const dur = actor.team === 1 ? CFG.defuseTimeKit : CFG.defuseTimeNoKit;
 		M.channel = { actor, kind: "defuse", t: 0, dur, site: M.bomb.site, x: actor.pos.x, z: actor.pos.z };
 		actor.defusing = true;
 		return true;
@@ -218,7 +203,7 @@ export function createMatch(G) {
 		setPhase("planted", CFG.bombTime);
 		if (G.audio) G.audio.plant();
 		if (G.hud) G.hud.banner("Charge planted", `Site ${ch.site} — ${CFG.bombTime} seconds`, 0);
-		// every bot hears the plant callout
+
 		G.noiseEvents.push({ pos: M.bomb.pos.clone(), radius: 999, t: G.simTime, kind: "planted" });
 	}
 
@@ -231,14 +216,12 @@ export function createMatch(G) {
 		endRound(1, "defuse");
 	}
 
-	// --- kills and round end ---------------------------------------------------------
-
 	function handleKill(attacker, victim) {
 		victim.roundDied = true;
 		if (attacker && attacker.team !== victim.team) {
 			attacker.money = Math.min(CFG.maxMoney, attacker.money + CFG.killReward);
 		}
-		// a dead carrier drops the bomb where he fell
+
 		if (M.bomb && M.bomb.state === "carried" && M.bomb.carrier === victim) {
 			M.bomb = { state: "dropped", carrier: null, site: null, pos: victim.pos.clone(), t: 0 };
 			victim.hasBomb = false;
@@ -252,8 +235,7 @@ export function createMatch(G) {
 			if (aliveCount(1) === 0) endRound(0, "elimination");
 			else if (aliveCount(0) === 0) endRound(1, "elimination");
 		} else if (M.phase === "planted") {
-			// CS rule: wiping the Guard after the plant ends it; wiping Ember
-			// does not — the charge still has to be defused.
+
 			if (aliveCount(1) === 0) endRound(0, "elimination");
 		}
 	}
@@ -286,18 +268,16 @@ export function createMatch(G) {
 		if (G.audio) G.audio.sting(G.player && G.player.team === winner);
 
 		const matchWon = M.score[winner] >= CFG.roundsToWin || M.roundNum >= CFG.maxRounds;
-		// the HUD raises its match-end panel itself when it sees phase "over"
+
 		setPhase(matchWon ? "over" : "end", matchWon ? 999 : CFG.roundEndTime);
 	}
 
-	// --- per-step update ---------------------------------------------------------------
-
 	function update(dt) {
-		// prune the noise board bots listen to
+
 		if (G.noiseEvents) {
 			while (G.noiseEvents.length && G.simTime - G.noiseEvents[0].t > 1.5) G.noiseEvents.shift();
 		}
-		// flat mirrors the HUD and bot brains read
+
 		M.timeLeft = M.phaseT;
 		M.bombPlanted = !!(M.bomb && M.bomb.state === "planted");
 		M.bombPos = M.bomb ? M.bomb.pos : null;
@@ -307,7 +287,6 @@ export function createMatch(G) {
 
 		M.phaseT -= dt;
 
-		// channel progress (plant / defuse): moving or dying cancels
 		if (M.channel) {
 			const ch = M.channel;
 			const moved = Math.hypot(ch.actor.pos.x - ch.x, ch.actor.pos.z - ch.z);
@@ -325,7 +304,6 @@ export function createMatch(G) {
 			}
 		}
 
-		// dropped-bomb pickup: an Ember walking over it takes it
 		if (M.bomb && M.bomb.state === "dropped" && (M.phase === "live")) {
 			for (const a of teamActors(0)) {
 				if (a.alive && a.pos.distanceTo(M.bomb.pos) < 1.1) {
@@ -343,7 +321,7 @@ export function createMatch(G) {
 		} else if (M.phase === "planted") {
 			if (M.bomb && M.bomb.state === "planted") {
 				M.bomb.t -= dt;
-				// beep rate: 1 Hz early, 5 Hz in the last ten seconds
+
 				const remain = M.bomb.t;
 				const interval = remain > 10 ? 1 : remain > 5 ? 0.5 : 0.2;
 				if (Math.floor(remain / interval) !== Math.floor((remain + dt) / interval)) {
