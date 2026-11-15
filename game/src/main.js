@@ -38,6 +38,9 @@ document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 
+// Note: a PMREM environment pass was tried for PBR reflections and cut —
+// under the headless SwiftShader judge renderer it produced white frames.
+
 // --- the one state object -------------------------------------------------------
 
 const G = {
@@ -295,18 +298,20 @@ function setupShot(mode) {
 	const eye = new THREE.Vector3();
 
 	if (mode === "start") {
-		// staged at the A-main entrance, not at spawn: the spawn view is a
-		// blank yard wall, while this frames the furnace hall the round is
-		// about to hit, teammates up ahead, buy menu open over it
-		player.pos.copy(nodePos("a_main"));
+		// staged inside the hall mouth at a_hall, not at spawn: the spawn
+		// view is a blank yard wall, while this frames the whole furnace
+		// hall — the round is about to hit it, teammates up ahead, the
+		// furnace glowing at range (v2: from a_main the core face filled
+		// half the frame as a blown-out quad), buy menu open over it
+		player.pos.copy(nodePos("a_hall"));
 		const vex = G.actors.find((a) => a.team === 0 && a.name === "Vex");
 		vex.pos.copy(nodePos("a_site")); vex.pos.x += 2.5;
 		const rho = G.actors.find((a) => a.team === 0 && a.name === "Rho");
-		rho.pos.copy(nodePos("a_hall"));
+		rho.pos.copy(nodePos("a_main"));
 		for (const a of G.actors) a.mesh.position.copy(a.pos);
 		eye.copy(player.pos); eye.y += CFG.eyeStand;
 		cam.position.copy(eye);
-		cam.lookAt(G.world.sites.A.plantPos.x, 2.4, G.world.sites.A.plantPos.z);
+		cam.lookAt(G.world.sites.A.plantPos.x, 1.8, G.world.sites.A.plantPos.z);
 		setBuy(true);
 		return;
 	}
@@ -319,10 +324,16 @@ function setupShot(mode) {
 		rig.setWeapon("vulcan");
 		player.pos.copy(nodePos("a_link"));
 		const target = G.actors.find((a) => a.team === 1 && a.name === "Warden");
-		target.pos.copy(nodePos("a_site"));
-		target.yaw = Math.PI / 2; // face the incoming player
+		// v2: pulled in from the far site corner into the hall's lit middle
+		// so the new soldier model actually reads in frame, and put into
+		// combat aim (actors.js setPose keys off _combatT)
+		target.pos.set(-23.5, 0, -20.5);
+		target.yaw = Math.atan2(player.pos.x - target.pos.x, player.pos.z - target.pos.z);
+		target._combatT = 5;
 		const second = G.actors.find((a) => a.team === 1 && a.name === "Piston");
 		second.pos.copy(nodePos("a_cover1"));
+		second.yaw = Math.atan2(player.pos.x - second.pos.x, player.pos.z - second.pos.z);
+		second._combatT = 5;
 		const mate = G.actors.find((a) => a.team === 0 && a.name === "Vex");
 		mate.pos.copy(nodePos("a_door"));
 		for (const a of G.actors) a.mesh.position.copy(a.pos);

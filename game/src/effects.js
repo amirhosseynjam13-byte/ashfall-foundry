@@ -58,15 +58,49 @@ function dotTexture() {
 	return new THREE.CanvasTexture(c);
 }
 
+// Muzzle-flash star: a hot core with four tapered spikes. The sprite is
+// billboarded, so the spikes read as a cross flash from any angle; a random
+// material rotation per shot keeps consecutive flashes from looking stamped.
+function flashTexture() {
+	const c = document.createElement("canvas");
+	c.width = c.height = 128;
+	const g = c.getContext("2d");
+	g.translate(64, 64);
+	for (let i = 0; i < 4; i++) {
+		const grad = g.createLinearGradient(0, 0, 62, 0);
+		grad.addColorStop(0, "rgba(255,255,255,0.95)");
+		grad.addColorStop(0.4, "rgba(255,255,255,0.45)");
+		grad.addColorStop(1, "rgba(255,255,255,0)");
+		g.fillStyle = grad;
+		g.beginPath();
+		g.moveTo(0, -8);
+		g.lineTo(62, 0);
+		g.lineTo(0, 8);
+		g.closePath();
+		g.fill();
+		g.rotate(Math.PI / 2);
+	}
+	const core = g.createRadialGradient(0, 0, 1, 0, 0, 30);
+	core.addColorStop(0, "rgba(255,255,255,1)");
+	core.addColorStop(0.5, "rgba(255,255,255,0.6)");
+	core.addColorStop(1, "rgba(255,255,255,0)");
+	g.fillStyle = core;
+	g.fillRect(-30, -30, 60, 60);
+	return new THREE.CanvasTexture(c);
+}
+
 const UP = new THREE.Vector3(0, 1, 0);
 
 export function createEffects(scene) {
 	const glowTex = glowTexture();
 	const smokeTex = smokeTexture();
 	const dotTex = dotTexture();
+	const flashTex = flashTexture();
 
-	// --- tracers: additive lines with a 60 ms fade ---------------------------
+	// --- tracers: additive lines with a 60 ms fade, plus a glow sprite head
+	// that races from muzzle to impact over the same window -----------------
 	const TRACER_COUNT = 48;
+	const TRACER_LIFE = 0.06;
 	const tracers = [];
 	let tracerCursor = 0;
 	for (let i = 0; i < TRACER_COUNT; i++) {
@@ -81,7 +115,18 @@ export function createEffects(scene) {
 		line.frustumCulled = false;
 		line.visible = false;
 		scene.add(line);
-		tracers.push({ line, arr, mat, t: 0 });
+		const headMat = new THREE.SpriteMaterial({
+			map: glowTex, color: 0xffffff, transparent: true, opacity: 0,
+			blending: THREE.AdditiveBlending, depthWrite: false,
+		});
+		const head = new THREE.Sprite(headMat);
+		head.scale.set(0.17, 0.17, 1);
+		head.visible = false;
+		scene.add(head);
+		tracers.push({
+			line, arr, mat, head, headMat, t: 0,
+			from: new THREE.Vector3(), to: new THREE.Vector3(),
+		});
 	}
 
 	function tracer(a, b, color) {
@@ -93,7 +138,13 @@ export function createEffects(scene) {
 		tr.mat.color.set(color);
 		tr.mat.opacity = 0.85;
 		tr.line.visible = true;
-		tr.t = 0.06;
+		tr.from.copy(a);
+		tr.to.copy(b);
+		tr.head.position.copy(a);
+		tr.headMat.color.set(color);
+		tr.headMat.opacity = 0.9;
+		tr.head.visible = true;
+		tr.t = TRACER_LIFE;
 	}
 
 	// --- particle bursts: one Points cloud per burst, pooled ------------------
@@ -142,6 +193,55 @@ export function createEffects(scene) {
 		b.gravity = gravity;
 	}
 
+	// --- dust puffs: soft smoke-textured points, normal blending, pooled -----
+	// Used for concrete dust, metal-impact haze, hit puffs and muzzle wisps:
+	// slow, growing, low opacity - the matte counterpoint to additive sparks.
+	const PUFF_COUNT = 18;
+	const PUFF_POINTS = 9;
+	const puffs = [];
+	for (let i = 0; i < PUFF_COUNT; i++) {
+		const geo = new THREE.BufferGeometry();
+		const pos = new Float32Array(PUFF_POINTS * 3);
+		geo.setAttribute("position", new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+		const mat = new THREE.PointsMaterial({
+			size: 0.2, map: smokeTex, transparent: true, opacity: 0,
+			depthWrite: false, color: 0xffffff,
+		});
+		const points = new THREE.Points(geo, mat);
+		points.frustumCulled = false;
+		points.visible = false;
+		scene.add(points);
+		puffs.push({
+			points, mat, pos, vel: new Float32Array(PUFF_POINTS * 3),
+			t: 0, life: 0.5, size: 0.2, grow: 0.5, baseOpacity: 0.4,
+		});
+	}
+	let puffCursor = 0;
+
+	function spawnPuff(point, normal, color, size, life, opacity, spread = 0.6, rise = 0.4, grow = 0.55) {
+		const p = puffs[puffCursor];
+		puffCursor = (puffCursor + 1) % PUFF_COUNT;
+		for (let i = 0; i < PUFF_POINTS; i++) {
+			const j = i * 3;
+			p.pos[j] = point.x + (Math.random() - 0.5) * 0.08;
+			p.pos[j + 1] = point.y + (Math.random() - 0.5) * 0.08;
+			p.pos[j + 2] = point.z + (Math.random() - 0.5) * 0.08;
+			p.vel[j] = normal.x * spread * (0.3 + Math.random() * 0.7) + (Math.random() - 0.5) * 0.35;
+			p.vel[j + 1] = normal.y * spread * (0.3 + Math.random() * 0.7) + rise * (0.4 + Math.random() * 0.6);
+			p.vel[j + 2] = normal.z * spread * (0.3 + Math.random() * 0.7) + (Math.random() - 0.5) * 0.35;
+		}
+		p.points.geometry.attributes.position.needsUpdate = true;
+		p.mat.color.set(color);
+		p.mat.size = size;
+		p.mat.opacity = opacity;
+		p.points.visible = true;
+		p.t = life;
+		p.life = life;
+		p.size = size;
+		p.grow = grow;
+		p.baseOpacity = opacity;
+	}
+
 	// --- small glow flashes (impacts, hits): pooled sprites -------------------
 	const FLASH_COUNT = 10;
 	const flashes = [];
@@ -169,24 +269,31 @@ export function createEffects(scene) {
 		f.life = life;
 	}
 
-	// kind: "metal" (bright sparks, default - the foundry is steel) or "dust"
-	// (slow tan puff for the ground and soft surfaces).
+	// kind: "metal" (bright sparks + embers + haze, default - the foundry is
+	// steel) or "dust" (a slow tan dust puff for concrete and the ground).
 	function impact(point, normal, kind) {
 		if (kind === "dust") {
-			spawnBurst(point, normal, 0x9a8a76, 1.1, 0.5, -1.2, 0.16);
+			spawnPuff(point, normal, 0xa5937c, 0.24, 0.55, 0.5, 0.7, 0.35);
+			spawnBurst(point, normal, 0xb8a888, 1.4, 0.4, -2.5, 0.1);
 		} else {
-			spawnBurst(point, normal, 0xffc37a, 4.2, 0.3, -5, 0.07);
+			spawnBurst(point, normal, 0xffd9a0, 4.6, 0.28, -6, 0.065);
+			spawnBurst(point, normal, 0xff8a3d, 1.8, 0.42, -2, 0.1);
 			flash(point, 0xffa050, 0.35);
+			spawnPuff(point, normal, 0x8a8378, 0.15, 0.4, 0.26, 0.4, 0.5);
 		}
 	}
 
-	// Bloodless hit feedback on an actor: hot ember sparks, no gore.
+	// Bloodless hit feedback on an actor: hot ember sparks over a soft puff
+	// at the impact point, no gore.
 	function hitSpark(point) {
 		spawnBurst(point, UP, 0xff5a33, 2.1, 0.32, -3, 0.09);
 		flash(point, 0xff6a3d, 0.42);
+		spawnPuff(point, UP, 0x9a7a68, 0.14, 0.35, 0.3, 0.5, 0.6);
 	}
 
-	// --- muzzle flash: one shared sprite + light, retriggered per shot -------
+	// --- muzzle flash: glow + star-spike sprites and one shared light,
+	// retriggered per shot; the light flickers out over the flash life ------
+	const MUZZLE_LIFE = 0.05;
 	const muzzleMat = new THREE.SpriteMaterial({
 		map: glowTex, color: 0xffb066, transparent: true, opacity: 0,
 		blending: THREE.AdditiveBlending, depthWrite: false,
@@ -194,6 +301,13 @@ export function createEffects(scene) {
 	const muzzleSprite = new THREE.Sprite(muzzleMat);
 	muzzleSprite.visible = false;
 	scene.add(muzzleSprite);
+	const muzzleSpikeMat = new THREE.SpriteMaterial({
+		map: flashTex, color: 0xffc37a, transparent: true, opacity: 0,
+		blending: THREE.AdditiveBlending, depthWrite: false,
+	});
+	const muzzleSpike = new THREE.Sprite(muzzleSpikeMat);
+	muzzleSpike.visible = false;
+	scene.add(muzzleSpike);
 	const muzzleLight = new THREE.PointLight(0xff9a4d, 0, 11, 1.8);
 	scene.add(muzzleLight);
 	let muzzleT = 0;
@@ -206,9 +320,17 @@ export function createEffects(scene) {
 		muzzleSprite.scale.set(s, s, 1);
 		muzzleMat.opacity = 1;
 		muzzleSprite.visible = true;
+		muzzleSpike.position.copy(muzzlePos).addScaledVector(dir, 0.12);
+		const ss = 0.75 + Math.random() * 0.35;
+		muzzleSpike.scale.set(ss, ss, 1);
+		muzzleSpikeMat.rotation = Math.random() * Math.PI;
+		muzzleSpikeMat.opacity = 0.95;
+		muzzleSpike.visible = true;
 		muzzleLight.position.copy(muzzlePos);
 		muzzleLight.intensity = 30;
-		muzzleT = 0.04; // the flash lives 40 ms, per the gunplay spec
+		muzzleT = MUZZLE_LIFE;
+		// A faint wisp of propellant smoke drifts out of the muzzle.
+		spawnPuff(muzzlePos, dir, 0x9aa0a2, 0.1, 0.45, 0.15, 0.8, 0.35, 0.35);
 	}
 
 	// --- explosions: fireball sprites + light + a rising smoke column --------
@@ -261,6 +383,8 @@ export function createEffects(scene) {
 			s.rise = 2.2 + Math.random() * 1.6;
 			s.delay = Math.random() * 0.25;
 		}
+		// Dust ring kicked outward along the ground by the blast.
+		spawnPuff(pos, UP, 0x8a7a66, 0.85, 0.9, 0.38, 2.4, 0.7, 1.6);
 		shake(0.55);
 	}
 
@@ -312,7 +436,7 @@ export function createEffects(scene) {
 	// --- shell casings: one InstancedMesh, pooled matrices ---------------------
 	const CASE_COUNT = 96;
 	const caseMesh = new THREE.InstancedMesh(
-		new THREE.BoxGeometry(0.014, 0.014, 0.028),
+		new THREE.CylinderGeometry(0.0075, 0.0085, 0.03, 8),
 		new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.8, roughness: 0.35 }),
 		CASE_COUNT,
 	);
@@ -363,8 +487,11 @@ export function createEffects(scene) {
 		for (const tr of tracers) {
 			if (tr.t <= 0) continue;
 			tr.t -= dt;
-			tr.mat.opacity = Math.max(0, tr.t / 0.06) * 0.85;
-			if (tr.t <= 0) tr.line.visible = false;
+			const k = Math.max(0, tr.t / TRACER_LIFE);
+			tr.mat.opacity = k * 0.85;
+			tr.head.position.lerpVectors(tr.from, tr.to, 1 - k);
+			tr.headMat.opacity = k * 0.9;
+			if (tr.t <= 0) { tr.line.visible = false; tr.head.visible = false; }
 		}
 
 		for (const b of bursts) {
@@ -382,6 +509,24 @@ export function createEffects(scene) {
 			b.mat.opacity = b.t / b.life;
 		}
 
+		for (const p of puffs) {
+			if (p.t <= 0) continue;
+			p.t -= dt;
+			if (p.t <= 0) { p.points.visible = false; p.mat.opacity = 0; continue; }
+			const drag = Math.max(0, 1 - 1.9 * dt);
+			for (let i = 0; i < PUFF_POINTS; i++) {
+				const j = i * 3;
+				p.vel[j] *= drag; p.vel[j + 1] *= drag; p.vel[j + 2] *= drag;
+				p.pos[j] += p.vel[j] * dt;
+				p.pos[j + 1] += p.vel[j + 1] * dt;
+				p.pos[j + 2] += p.vel[j + 2] * dt;
+			}
+			p.points.geometry.attributes.position.needsUpdate = true;
+			const age = p.life - p.t;
+			p.mat.size = p.size + p.grow * age;
+			p.mat.opacity = p.baseOpacity * clamp(p.t / (p.life * 0.6), 0, 1);
+		}
+
 		for (const f of flashes) {
 			if (f.t <= 0) continue;
 			f.t -= dt;
@@ -391,9 +536,17 @@ export function createEffects(scene) {
 
 		if (muzzleT > 0) {
 			muzzleT -= dt;
+			const k = Math.max(0, muzzleT / MUZZLE_LIFE);
+			muzzleMat.opacity = k;
+			muzzleSpikeMat.opacity = k * 0.95;
+			// Flicker: the light sputters randomly as it dies instead of
+			// switching off in one step.
+			muzzleLight.intensity = 30 * k * (0.72 + Math.random() * 0.28);
 			if (muzzleT <= 0) {
 				muzzleMat.opacity = 0;
 				muzzleSprite.visible = false;
+				muzzleSpikeMat.opacity = 0;
+				muzzleSpike.visible = false;
 				muzzleLight.intensity = 0;
 			}
 		}
@@ -460,6 +613,10 @@ export function createEffects(scene) {
 			c.ang += c.spin * dt;
 			caseDummy.position.copy(c.pos);
 			caseDummy.quaternion.setFromAxisAngle(c.axis, c.ang);
+			// Shrink out over the last quarter second - a per-instance fade,
+			// since the shared material cannot fade instances individually.
+			const fadeK = c.t < 0.25 ? Math.max(0.001, c.t / 0.25) : 1;
+			caseDummy.scale.set(fadeK, fadeK, fadeK);
 			caseDummy.updateMatrix();
 			caseMesh.setMatrixAt(i, caseDummy.matrix);
 		}

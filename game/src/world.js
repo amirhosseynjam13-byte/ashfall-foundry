@@ -14,13 +14,19 @@
 
 import * as THREE from "three";
 import {
+	asphaltTexture,
+	barrelTexture,
 	concreteTexture,
+	corrugatedTexture,
 	crateTexture,
+	diamondPlateTexture,
 	glowTexture,
 	groundTexture,
 	hazardTexture,
 	signTexture,
 	skyTexture,
+	smokeTexture,
+	surfaceMaterial,
 	wallTexture,
 } from "./textures.js";
 
@@ -34,15 +40,30 @@ export function buildWorld(scene) {
 	const coverBoxes = [];
 
 	// --- materials -------------------------------------------------------
+	// Every surface comes from the textures.js factory: a painted canvas
+	// for the colour map and the same canvas as the bump map, so ribs,
+	// rivets and tread plate catch the dusk light instead of reading flat.
 	const wallTex = wallTexture();
 	wallTex.repeat.set(2, 1.4);
-	const matWall = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.82, metalness: 0.25 });
-	const matWallWarm = new THREE.MeshStandardMaterial({ map: wallTex, color: 0xe6c9ac, roughness: 0.82, metalness: 0.25 });
-	const matWallCool = new THREE.MeshStandardMaterial({ map: wallTex, color: 0xaecdd4, roughness: 0.82, metalness: 0.25 });
+	const corrTex = corrugatedTexture();
+	corrTex.repeat.set(3, 1.3);
+	const matWall = surfaceMaterial(corrTex, { roughness: 0.6, metalness: 0.55, bumpScale: 0.7 });
+	const matWallWarm = surfaceMaterial(wallTex, { color: 0xe6c9ac, roughness: 0.8, metalness: 0.3, bumpScale: 0.35 });
+	const matWallCool = surfaceMaterial(corrTex, { color: 0x9fc3cc, roughness: 0.6, metalness: 0.55, bumpScale: 0.7 });
 	const concTex = concreteTexture();
 	concTex.repeat.set(2, 2);
-	const matConcrete = new THREE.MeshStandardMaterial({ map: concTex, color: 0xbdbdbd, roughness: 0.95 });
-	const matCrate = new THREE.MeshStandardMaterial({ map: crateTexture(), roughness: 0.9 });
+	const matConcrete = surfaceMaterial(concTex, { color: 0xbdbdbd, roughness: 0.95, metalness: 0, bumpScale: 0.25 });
+	const tunTex = concreteTexture();
+	tunTex.repeat.set(16, 1);
+	const matTunnel = surfaceMaterial(tunTex, { color: 0x6f6f6f, roughness: 0.95, metalness: 0, bumpScale: 0.2 });
+	const matCrate = surfaceMaterial(crateTexture(), { roughness: 0.9, metalness: 0, bumpScale: 0.3 });
+	const plateTex = diamondPlateTexture();
+	plateTex.repeat.set(24, 2);
+	const matPlate = surfaceMaterial(plateTex, { roughness: 0.5, metalness: 0.7, bumpScale: 0.5 });
+	const barrelTex = barrelTexture();
+	const matBarrel = surfaceMaterial(barrelTex, { roughness: 0.8, metalness: 0.35, bumpScale: 0.3 });
+	const matBarrelSteel = surfaceMaterial(barrelTex, { color: 0xaebfca, roughness: 0.65, metalness: 0.5, bumpScale: 0.3 });
+	const matFurnace = surfaceMaterial(wallTex, { color: 0x77644e, roughness: 0.85, metalness: 0.3, bumpScale: 0.35 });
 	const matDark = new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.7, metalness: 0.5 });
 	const matMetal = new THREE.MeshStandardMaterial({ color: 0x49505a, roughness: 0.45, metalness: 0.75 });
 	const matPipe = new THREE.MeshStandardMaterial({ color: 0x767d84, roughness: 0.4, metalness: 0.8 });
@@ -54,6 +75,25 @@ export function buildWorld(scene) {
 	const matMolten = new THREE.MeshStandardMaterial({ color: 0x140a05, emissive: 0xff7d22, emissiveIntensity: 2.4, roughness: 0.8 });
 	const matBulb = new THREE.MeshStandardMaterial({ color: 0x201409, emissive: 0xffb36b, emissiveIntensity: 2.4 });
 	const matBeacon = new THREE.MeshStandardMaterial({ color: 0x1a0505, emissive: 0xff2a1a, emissiveIntensity: 0.2 });
+
+	// Distant structures are pure silhouette: unlit near-black, hazed by fog.
+	const matSilhouette = new THREE.MeshBasicMaterial({ color: 0x0e1218 });
+	const matShade = new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.6, metalness: 0.6, side: THREE.DoubleSide });
+	// Puddles: near-mirror standard material - the scene environment and
+	// the sun do the reflecting, the dark tint keeps them grounded.
+	const matPuddle = new THREE.MeshStandardMaterial({
+		color: 0x141a20, metalness: 0.9, roughness: 0.15, envMapIntensity: 1.6,
+		transparent: true, opacity: 0.92, polygonOffset: true, polygonOffsetFactor: -2,
+	});
+	// Shared lamp hardware: one bulb geometry, one shade geometry and one
+	// glow-sprite material serve every work lamp in the yard.
+	const bulbGeo = new THREE.SphereGeometry(0.09, 8, 8);
+	const shadeGeo = new THREE.CylinderGeometry(0.07, 0.24, 0.2, 12, 1, true);
+	const glowTex = glowTexture();
+	const lampGlowMat = new THREE.SpriteMaterial({
+		map: glowTex, color: 0xffc98a, transparent: true, opacity: 0.38,
+		blending: THREE.AdditiveBlending, depthWrite: false,
+	});
 
 	// --- build helpers -----------------------------------------------------
 	const unitBox = new THREE.BoxGeometry(1, 1, 1);
@@ -123,6 +163,30 @@ export function buildWorld(scene) {
 		return mesh;
 	}
 
+	// A decorative mesh with NO collider: dressing that must never block
+	// a lane or a waypoint. Shares the unit geometries with solid().
+	function decoBox(cx, y0, cz, w, h, d, mat, ry = 0) {
+		const mesh = new THREE.Mesh(unitBox, mat);
+		mesh.scale.set(w, h, d);
+		mesh.position.set(cx, y0 + h / 2, cz);
+		mesh.rotation.y = ry;
+		mesh.castShadow = true;
+		mesh.receiveShadow = true;
+		scene.add(mesh);
+		return mesh;
+	}
+
+	const unitCyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 14);
+	function decoCyl(cx, y0, cz, r, h, mat) {
+		const mesh = new THREE.Mesh(unitCyl, mat);
+		mesh.scale.set(r * 2, h, r * 2);
+		mesh.position.set(cx, y0 + h / 2, cz);
+		mesh.castShadow = true;
+		mesh.receiveShadow = true;
+		scene.add(mesh);
+		return mesh;
+	}
+
 	// A straight wall run, segmented so the panel texture keeps its scale.
 	function wallRun(cx, cz, len, axis, h = WALL_H, mat = matWall) {
 		const n = Math.max(1, Math.ceil(len / 7));
@@ -172,21 +236,22 @@ export function buildWorld(scene) {
 	}
 
 	// --- sky, fog, lights --------------------------------------------------
-	scene.fog = new THREE.Fog(0x2b2f2c, 45, 120);
+	// Fog tinted to the warm haze sitting on the sky dome's horizon band.
+	scene.fog = new THREE.Fog(0x3d3129, 45, 120);
 	const sky = new THREE.Mesh(
 		new THREE.SphereGeometry(300, 24, 16),
 		new THREE.MeshBasicMaterial({ map: skyTexture(), side: THREE.BackSide, fog: false }),
 	);
 	scene.add(sky);
 	const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
-		map: glowTexture(), color: 0xff9a4a, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+		map: glowTex, color: 0xff9a4a, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
 	}));
 	sunSprite.position.set(-190, 52, -150);
 	sunSprite.scale.setScalar(120);
 	scene.add(sunSprite);
 
-	scene.add(new THREE.HemisphereLight(0x3d7a80, 0x201612, 0.55));
-	const sun = new THREE.DirectionalLight(0xff8c3a, 1.8);
+	scene.add(new THREE.HemisphereLight(0x3d7a80, 0x201612, 0.85));
+	const sun = new THREE.DirectionalLight(0xff8c3a, 2.1);
 	sun.position.set(-55, 42, -38);
 	sun.castShadow = true;
 	sun.shadow.mapSize.set(2048, 2048);
@@ -207,20 +272,56 @@ export function buildWorld(scene) {
 	scene.add(furnaceLight);
 
 	// Warm work-lights at the places fights happen. No shadows - the sun
-	// owns the only shadow map.
+	// owns the only shadow map. Every lamp gets the shared bulb, a soft
+	// glow sprite, and (outdoors) a shade fixture so it reads as hardware.
+	function lampGlow(x, y, z) {
+		const glow = new THREE.Sprite(lampGlowMat);
+		glow.position.set(x, y, z);
+		glow.scale.setScalar(1.7);
+		scene.add(glow);
+	}
+	function lampFixture(x, y, z, rod = true) {
+		if (rod) decoBox(x, y + 0.3, z, 0.05, 0.55, 0.05, matDark);
+		const shade = new THREE.Mesh(shadeGeo, matShade);
+		shade.position.set(x, y + 0.18, z);
+		shade.castShadow = true;
+		scene.add(shade);
+	}
 	function workLight(x, y, z, intensity = 50, dist = 26) {
 		const light = new THREE.PointLight(0xffb36b, intensity, dist, 1.8);
 		light.position.set(x, y, z);
 		scene.add(light);
-		const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), matBulb);
+		const bulb = new THREE.Mesh(bulbGeo, matBulb);
 		bulb.position.set(x, y, z);
 		scene.add(bulb);
+		lampGlow(x, y, z);
+	}
+	// A complete new lamp: light, bulb, glow and shade in one call. The
+	// overhaul budget allows exactly four of these (see hangLamp calls).
+	function hangLamp(x, y, z, intensity = 42, dist = 22) {
+		workLight(x, y, z, intensity, dist);
+		lampFixture(x, y, z, false);
 	}
 	workLight(-24.2, 3.3, -22); // site A, off the sign post
 	workLight(0, 3.5, 0); // mid, under the door lintel
 	workLight(30.6, 3.3, 22); // site B, off the sign post
-	workLight(-10, 2.25, 30, 20, 14); // B tunnel
+	workLight(-10, 2.25, 30, 20, 14); // B tunnel (bare bulb under the slab)
 	workLight(40, 3.4, 6); // Guard yard
+	// Fixtures for the existing lamps: drop rods where something overhead
+	// can hold them, an arm off the yard pole for the Guard lamp.
+	lampFixture(-24.2, 3.3, -22);
+	lampFixture(0, 3.5, 0);
+	lampFixture(30.6, 3.3, 22);
+	lampFixture(40, 3.4, 6, false);
+	decoBox(40.7, 3.52, 6, 1.6, 0.07, 0.07, matDark); // arm from the light pole
+	// Four new lamps, each on an existing mount - no more, per the budget.
+	hangLamp(0, 2.1, -18, 40, 20); // under the catwalk deck, mid lane
+	hangLamp(-20, 3.3, -26.55, 44, 22); // site A, on an arm off the pillar
+	decoBox(-20, 3.52, -27.1, 0.07, 0.07, 1.1, matDark); // pillar arm
+	hangLamp(10, 2.22, 30, 30, 16); // B tunnel, east end
+	decoBox(-42, 0, 14, 0.12, 3.6, 0.12, matMetal); // Ember yard lamp pole
+	decoBox(-41.6, 3.5, 14, 0.9, 0.07, 0.07, matDark); // its arm
+	hangLamp(-41.3, 3.32, 14, 42, 22); // Ember yard
 
 	// --- ground --------------------------------------------------------------
 	// The floor slab is a collider with no mesh: actors stand on it via the
@@ -233,11 +334,11 @@ export function buildWorld(scene) {
 	ground.rotation.x = -Math.PI / 2;
 	ground.receiveShadow = true;
 	scene.add(ground);
-	const apronTex = concreteTexture();
+	const apronTex = asphaltTexture();
 	apronTex.repeat.set(90, 90);
 	const apron = new THREE.Mesh(
 		new THREE.PlaneGeometry(600, 600),
-		new THREE.MeshStandardMaterial({ map: apronTex, color: 0x8a8a8a, roughness: 1 }),
+		surfaceMaterial(apronTex, { color: 0x8a8a8a, roughness: 1, metalness: 0, bumpScale: 0.25 }),
 	);
 	apron.rotation.x = -Math.PI / 2;
 	apron.position.y = -0.05;
@@ -258,10 +359,10 @@ export function buildWorld(scene) {
 	wallRun(-48, 0, 72.8, "z");
 	wallRun(48, 0, 72.8, "z");
 	// Silhouette chimneys beyond the north wall - the foundry goes on.
-	solid(-20, 0, -46, 4, 14, 4, matDark);
-	solid(14, 0, -48, 5, 18, 5, matDark);
-	solid(36, 0, -44, 3.5, 11, 3.5, matDark);
-	solid(58, 0, -10, 4, 12, 4, matDark);
+	solid(-20, 0, -46, 4, 14, 4, matSilhouette);
+	solid(14, 0, -48, 5, 18, 5, matSilhouette);
+	solid(36, 0, -44, 3.5, 11, 3.5, matSilhouette);
+	solid(58, 0, -10, 4, 12, 4, matSilhouette);
 
 	// --- site A: the Furnace Hall (x -38..-13, z -34..-9) --------------------
 	wallRun(-25.5, -34, 25.6, "x", WALL_H, matWallWarm); // north
@@ -282,7 +383,7 @@ export function buildWorld(scene) {
 	// The furnace itself: a riveted hulk with a glowing core facing the
 	// plant apron, a skirt too tall to step onto, and its chimney.
 	solid(-30, 0, -28, 8, 0.5, 6, matRust); // skirt
-	solid(-30, 0.5, -28, 7, 4.7, 5, matDark); // body
+	solid(-30, 0.5, -28, 7, 4.7, 5, matFurnace); // body
 	solid(-30, 0.8, -25.35, 3.2, 2.2, 0.3, matCore, { collide: false }); // core face
 	cyl(-30, 5.2, -28, 0.9, 1.1, 4.8, matMetal); // chimney
 	pipeX(-30, 3.9, -25.2, 0.22, 5.4, matPipe); // feed pipe across the face
@@ -301,7 +402,7 @@ export function buildWorld(scene) {
 
 	// A-Door corridor (x -13..-6 at z -28..-24) and the blocks flanking it.
 	solid(-9.5, 0, -24, 7, WALL_H, 0.4, matWall);
-	solid(-9.5, 0, -31, 7, WALL_H, 6, matDark); // boiler house (north block)
+	solid(-9.5, 0, -31, 7, WALL_H, 6, matWall); // boiler house (north block)
 	cyl(-7, 0, -33, 0.3, 0.3, 5.5, matPipe);
 	cyl(-8.2, 0, -33, 0.22, 0.22, 4.8, matPipe);
 	solid(-9.5, 0, -16.5, 7, WALL_H, 15, matWall); // warehouse block (south)
@@ -347,7 +448,7 @@ export function buildWorld(scene) {
 	crate(-4, 28, true);
 
 	// --- the catwalk (deck at y 2.6, z -18, x -19..11) -------------------------
-	solid(-4, DECK_Y - 0.25, -18, 30, 0.25, 2.4, matMetal);
+	solid(-4, DECK_Y - 0.25, -18, 30, 0.25, 2.4, matPlate);
 	for (const px of [-3, 3]) solid(px, 0, -19.0, 0.35, DECK_Y - 0.25, 0.35, matMetal); // mid pillars
 	solid(-4, 3.38, -19.16, 30, 0.07, 0.07, matPipe); // north rail
 	solid(-9.1, 3.38, -16.84, 19.8, 0.07, 0.07, matPipe); // south rail, west of the mid flight
@@ -407,9 +508,9 @@ export function buildWorld(scene) {
 	// A low vent run under the yard's south edge: 3 m walls, a ceiling at
 	// 2.4 m, one work-light. Low enough to feel like a vent, tall enough
 	// that a standing actor (1.78 m) passes cleanly.
-	solid(-10, 0, 28, 48, 3.0, 0.4, matDark);
-	solid(-10, 0, 32, 48, 3.0, 0.4, matDark);
-	solid(-10, 2.4, 30, 48, 0.5, 4.4, matDark); // ceiling slab
+	solid(-10, 0, 28, 48, 3.0, 0.4, matTunnel);
+	solid(-10, 0, 32, 48, 3.0, 0.4, matTunnel);
+	solid(-10, 2.4, 30, 48, 0.5, 4.4, matTunnel); // ceiling slab
 	solid(-34, 0, 28.2, 0.4, 2.4, 0.4, matDark); // mouth frame
 	solid(-34, 0, 31.8, 0.4, 2.4, 0.4, matDark);
 	pipeX(-8, 2.15, 29, 0.22, 20, matPipe); // vent pipe along the ceiling
@@ -428,6 +529,79 @@ export function buildWorld(scene) {
 	solid(24.5, 0, -31, 2.4, 1.2, 0.5, matMetal); // barrier on the A rotation
 	crate(44, 16);
 	solid(41.5, 0, 6, 0.12, 3.5, 0.12, matMetal); // yard light pole
+
+	// --- dressing: mood only, never collision --------------------------------
+	// Barrels, spare crates, cable runs and puddles, all placed against
+	// walls and outside the waypoint lanes, all built with the deco
+	// helpers - the collider and cover lists above stay exactly as drawn.
+	function barrel(x, z, mat = matBarrel) {
+		decoCyl(x, 0, z, 0.34, 0.96, mat);
+	}
+	function decoCrate(x, z, ry = 0, stacked = false) {
+		decoBox(x, 0, z, 1.1, 1.1, 1.1, matCrate, ry);
+		if (stacked) decoBox(x, 1.1, z, 1.1, 1.1, 1.1, matCrate, ry);
+	}
+	// Furnace hall: a barrel cluster in the north-west corner, a crate
+	// and barrel against the hall's outer south wall.
+	barrel(-36.6, -32.6); barrel(-35.5, -33.2); barrel(-36.3, -31.5, matBarrelSteel);
+	decoCrate(-24, -8.15, 0.12); barrel(-22.4, -8.1);
+	// Boiler house north-east corner, out of the A-Door corridor.
+	barrel(-5.1, -33); barrel(-5.1, -31.7, matBarrelSteel);
+	// Cooling Yard corners: barrels south-east, a barrel and crate by the
+	// tunnel wall, clear of the plant zone and its cover nodes.
+	barrel(38.6, 32.6); barrel(37.5, 33.1); barrel(38.9, 31.4, matBarrelSteel);
+	barrel(17.2, 33); decoCrate(15.7, 33.2, -0.08);
+	// Spawn-yard corners, far from the pads.
+	barrel(-46.2, 33.4); decoCrate(-45.9, -33.5, 0.2, true);
+	barrel(46.3, -33.4); decoCrate(45.9, 33.3, -0.15);
+	decoCrate(-5.3, 33.6, 0.05); // mid's south-west corner, against the wall
+
+	// Cable runs: conduit along the catwalk edge and the mid wall, a
+	// cable strapped over the furnace feed pipe, a run down site B.
+	decoBox(-4, 2.26, -16.68, 28, 0.05, 0.05, matDark);
+	decoBox(-5.72, 3.55, -7, 0.06, 0.06, 32, matDark);
+	decoBox(-30, 4.14, -25.2, 6.6, 0.05, 0.05, matDark);
+	decoBox(27, 3.55, 10.28, 24, 0.06, 0.06, matDark);
+
+	// Puddles in the low spots - flat decals, walked straight over.
+	flat(2, 7, 5.2, 3.4, matPuddle, 0.021); // mid avenue
+	flat(-22, -15.5, 4.6, 3.0, matPuddle, 0.021); // Furnace Hall floor
+	flat(26, 15.5, 5.4, 3.4, matPuddle, 0.021); // Cooling Yard
+	flat(-37, 13, 4.4, 3.0, matPuddle, 0.021); // Ember yard
+	flat(7, 26.6, 4.6, 2.4, matPuddle, 0.021); // tunnel east approach
+
+	// Distant silhouettes: the rest of the foundry, ringing the arena
+	// against the dusk - a gantry crane north, stacks east, warehouse
+	// sheds south, a water tower west.
+	decoBox(-10, 0, -64, 1, 17, 1, matSilhouette);
+	decoBox(18, 0, -64, 1, 17, 1, matSilhouette);
+	decoBox(4, 16.4, -64, 30, 1.1, 1.1, matSilhouette); // crane beam
+	decoBox(2, 15.1, -64, 1.6, 1.3, 1.6, matSilhouette); // trolley
+	decoBox(2, 8.6, -64, 0.08, 6.5, 0.08, matSilhouette); // hook line
+	decoCyl(68, 0, -20, 2.6, 23, matSilhouette);
+	decoCyl(74, 0, 8, 2.0, 16, matSilhouette);
+	decoBox(-18, 0, 56, 34, 8, 12, matSilhouette);
+	decoBox(24, 0, 58, 40, 10, 12, matSilhouette);
+	decoCyl(-66, 0, 18, 2.4, 14, matSilhouette);
+	decoCyl(-66, 14, 18, 3.4, 3.5, matSilhouette); // water tower tank
+
+	// Smoke over the stacks: a few sprites per stack, drifted by update().
+	const smokeTex = smokeTexture();
+	const smokes = [];
+	function smokeStack(x, y, z, count, baseScale) {
+		for (let i = 0; i < count; i++) {
+			const mat = new THREE.SpriteMaterial({
+				map: smokeTex, color: 0x8a8d90, transparent: true, opacity: 0.12, depthWrite: false,
+			});
+			const s = new THREE.Sprite(mat);
+			s.position.set(x, y, z);
+			scene.add(s);
+			smokes.push({ s, x, y, z, off: i / count, baseScale });
+		}
+	}
+	smokeStack(-30, 10.3, -28, 3, 6.5); // the furnace chimney
+	smokeStack(14, 18.5, -48, 2, 10); // the tall north stack
+	smokeStack(-20, 14.5, -46, 2, 9);
 
 	// --- sites and spawns ----------------------------------------------------------
 	const sites = {
@@ -542,9 +716,18 @@ export function buildWorld(scene) {
 	function update(dt, t) {
 		const flicker = Math.sin(t * 11.3) * 7 + Math.sin(t * 23.7 + 1.7) * 5 + Math.sin(t * 3.1) * 4;
 		furnaceLight.intensity = 90 + flicker;
-		matCore.emissiveIntensity = 2.0 + flicker * 0.02;
-		matMolten.emissiveIntensity = 2.4 + Math.sin(t * 2.3) * 0.3;
+		matCore.emissiveIntensity = 1.35 + flicker * 0.015;
+		matMolten.emissiveIntensity = 1.9 + Math.sin(t * 2.3) * 0.25;
 		matBeacon.emissiveIntensity = t % 1.6 < 0.15 ? 3.0 : 0.15;
+		// Stack smoke: each sprite loops upward on a fixed phase, drifting
+		// east on the wind, swelling and thinning as it climbs.
+		for (const sm of smokes) {
+			const ph = (t * 0.045 + sm.off) % 1;
+			sm.s.position.set(sm.x + ph * 4.5, sm.y + ph * 6.5, sm.z + ph * 1.2);
+			const sc = sm.baseScale * (0.7 + ph * 1.1);
+			sm.s.scale.set(sc, sc, 1);
+			sm.s.material.opacity = 0.15 * (1 - ph) * Math.min(1, ph * 6);
+		}
 	}
 
 	return { colliders, coverBoxes, sites, spawns, graph, update };

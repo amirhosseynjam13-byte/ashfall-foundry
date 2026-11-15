@@ -55,6 +55,11 @@ export function concreteTexture() {
 		speckle(ctx, w, h, rand, 900, "#3a3a3d", 0.25, 7);
 		speckle(ctx, w, h, rand, 700, "#5d5d60", 0.2, 5);
 		speckle(ctx, w, h, rand, 120, "#2c2c2f", 0.3, 16);
+		// board-form lines: faint horizontal seams left by the shuttering
+		ctx.fillStyle = "rgba(26,26,28,0.35)";
+		for (let y = 63; y < h; y += 64) ctx.fillRect(0, y, w, 2);
+		ctx.fillStyle = "rgba(255,255,255,0.05)";
+		for (let y = 65; y < h; y += 64) ctx.fillRect(0, y, w, 1);
 		// hairline cracks
 		ctx.strokeStyle = "rgba(20,20,22,0.5)";
 		ctx.lineWidth = 1;
@@ -256,12 +261,14 @@ export function crateTexture() {
 	});
 }
 
-// Diagonal hazard striping for thresholds and dangerous edges.
+// Diagonal hazard striping for thresholds and dangerous edges: worn
+// yellow on black, scrubbed back by years of boots and forklift tyres.
 export function hazardTexture() {
 	const tex = makeCanvas(128, 128, (ctx, w, h) => {
+		const rand = paintRand(6640);
 		ctx.fillStyle = "#151517";
 		ctx.fillRect(0, 0, w, h);
-		ctx.strokeStyle = "#e86a17";
+		ctx.strokeStyle = "#d9a514";
 		ctx.lineWidth = 16;
 		for (let x = -h; x < w + h; x += 44) {
 			ctx.beginPath();
@@ -269,6 +276,9 @@ export function hazardTexture() {
 			ctx.lineTo(x + h + 16, -8);
 			ctx.stroke();
 		}
+		// wear pass: dark speckle eats the paint, pale dust settles on top
+		speckle(ctx, w, h, rand, 300, "#151517", 0.5, 4);
+		speckle(ctx, w, h, rand, 170, "#454136", 0.3, 6);
 	});
 	tex.wrapS = THREE.RepeatWrapping;
 	tex.wrapT = THREE.RepeatWrapping;
@@ -329,6 +339,244 @@ export function glowTexture() {
 		ctx.fillStyle = g;
 		ctx.fillRect(0, 0, w, h);
 	});
+}
+
+// ---------------------------------------------------------------------
+// v2 surface factory: the detailed material sets for the overhaul. Each
+// painter draws in near-greyscale steel/concrete tones so the material
+// colour can tint it (team-warm, yard-cool, rust) without repainting,
+// and each canvas doubles as its own bump map via surfaceMaterial().
+
+// Corrugated metal: container and foundry cladding. Vertical ribs catch
+// the light, rust weeps from the bolt rows, grime pools at the hem.
+export function corrugatedTexture() {
+	const tex = makeCanvas(512, 256, (ctx, w, h) => {
+		const rand = paintRand(1207);
+		ctx.fillStyle = "#787f86";
+		ctx.fillRect(0, 0, w, h);
+		// panel variation: four sheets side by side, each a touch off
+		for (let p = 0; p < 4; p++) {
+			ctx.fillStyle = rand() > 0.5
+				? `rgba(255,255,255,${0.03 + rand() * 0.05})`
+				: `rgba(0,0,0,${0.03 + rand() * 0.05})`;
+			ctx.fillRect(p * 128, 0, 128, h);
+		}
+		// vertical ribs: a dark-light-dark gradient every 32 px
+		for (let x = 0; x < w; x += 32) {
+			const g = ctx.createLinearGradient(x, 0, x + 32, 0);
+			g.addColorStop(0, "rgba(0,0,0,0.42)");
+			g.addColorStop(0.28, "rgba(255,255,255,0.16)");
+			g.addColorStop(0.55, "rgba(255,255,255,0.02)");
+			g.addColorStop(1, "rgba(0,0,0,0.42)");
+			ctx.fillStyle = g;
+			ctx.fillRect(x, 0, 32, h);
+		}
+		// sheet seams and the bolt rows along the top and bottom hems
+		ctx.fillStyle = "rgba(15,16,18,0.8)";
+		for (let x = 0; x <= w; x += 128) ctx.fillRect(x - 1, 0, 2, h);
+		ctx.fillRect(0, 0, w, 3);
+		ctx.fillRect(0, h - 3, w, 3);
+		ctx.fillStyle = "#33373c";
+		for (let x = 16; x < w; x += 32) {
+			for (const y of [14, h - 14]) {
+				ctx.beginPath(); ctx.arc(x, y, 3.2, 0, Math.PI * 2); ctx.fill();
+			}
+		}
+		speckle(ctx, w, h, rand, 1100, "#5d646b", 0.22, 6);
+		speckle(ctx, w, h, rand, 700, "#8b9299", 0.18, 5);
+		// rust streaks bleeding down from bolts and seams
+		for (let i = 0; i < 30; i++) {
+			const x = rand() * w;
+			const len = 26 + rand() * 110;
+			const g = ctx.createLinearGradient(0, 0, 0, len);
+			g.addColorStop(0, "rgba(124,66,28,0.55)");
+			g.addColorStop(1, "rgba(124,66,28,0)");
+			ctx.fillStyle = g;
+			ctx.save();
+			ctx.translate(x, rand() * h * 0.35);
+			ctx.fillRect(-2, 0, 4, len);
+			ctx.restore();
+		}
+		// grime pooling at the bottom edge
+		const g2 = ctx.createLinearGradient(0, h * 0.7, 0, h);
+		g2.addColorStop(0, "rgba(10,10,10,0)");
+		g2.addColorStop(1, "rgba(10,10,10,0.5)");
+		ctx.fillStyle = g2;
+		ctx.fillRect(0, h * 0.7, w, h * 0.3);
+	});
+	tex.wrapS = THREE.RepeatWrapping;
+	tex.wrapT = THREE.RepeatWrapping;
+	return tex;
+}
+
+// Asphalt: dark aggregate, oil stains, hairline cracks, and one painted
+// line along the top edge worn nearly through.
+export function asphaltTexture() {
+	const tex = makeCanvas(256, 256, (ctx, w, h) => {
+		const rand = paintRand(2213);
+		ctx.fillStyle = "#333336";
+		ctx.fillRect(0, 0, w, h);
+		// aggregate: thousands of tiny stones, light and dark
+		speckle(ctx, w, h, rand, 2400, "#46464b", 0.25, 2.2);
+		speckle(ctx, w, h, rand, 2400, "#222225", 0.3, 2.2);
+		speckle(ctx, w, h, rand, 220, "#5c5c62", 0.2, 1.4);
+		// oil stains
+		for (let i = 0; i < 7; i++) {
+			const cx = rand() * w;
+			const cy = rand() * h;
+			const r = 20 + rand() * 44;
+			const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+			g.addColorStop(0, "rgba(12,11,10,0.45)");
+			g.addColorStop(1, "rgba(12,11,10,0)");
+			ctx.fillStyle = g;
+			ctx.beginPath();
+			ctx.arc(cx, cy, r, 0, Math.PI * 2);
+			ctx.fill();
+		}
+		// hairline cracks
+		ctx.strokeStyle = "rgba(16,16,18,0.55)";
+		ctx.lineWidth = 1;
+		for (let i = 0; i < 4; i++) {
+			ctx.beginPath();
+			let x = rand() * w;
+			let y = rand() * h;
+			ctx.moveTo(x, y);
+			for (let j = 0; j < 4; j++) {
+				x += (rand() - 0.5) * 70;
+				y += (rand() - 0.5) * 70;
+				ctx.lineTo(x, y);
+			}
+			ctx.stroke();
+		}
+		// the painted line, then traffic wears it back to aggregate
+		ctx.fillStyle = "rgba(203,164,58,0.55)";
+		ctx.fillRect(0, 18, w, 9);
+		ctx.save();
+		ctx.fillStyle = "#333336";
+		for (let i = 0; i < 520; i++) {
+			ctx.globalAlpha = 0.25 + rand() * 0.45;
+			const s = 1 + rand() * 3;
+			ctx.beginPath();
+			ctx.ellipse(rand() * w, 13 + rand() * 19, s, s * 0.6, 0, 0, Math.PI * 2);
+			ctx.fill();
+		}
+		ctx.restore();
+		speckle(ctx, w, h, rand, 500, "#2b2b2e", 0.25, 8);
+	});
+	tex.wrapS = THREE.RepeatWrapping;
+	tex.wrapT = THREE.RepeatWrapping;
+	return tex;
+}
+
+// Diamond plate for the catwalk deck and stair treads: paired diagonal
+// lugs in a checkerboard of orientations, drawn bright on mid steel so
+// the canvas-as-bump pass raises them properly.
+export function diamondPlateTexture() {
+	const tex = makeCanvas(256, 256, (ctx, w, h) => {
+		const rand = paintRand(3301);
+		ctx.fillStyle = "#565d66";
+		ctx.fillRect(0, 0, w, h);
+		speckle(ctx, w, h, rand, 800, "#484f57", 0.25, 5);
+		speckle(ctx, w, h, rand, 500, "#646c75", 0.2, 4);
+		const lug = (cx, cy, ang) => {
+			ctx.save();
+			ctx.translate(cx, cy);
+			ctx.rotate(ang);
+			ctx.fillStyle = "rgba(0,0,0,0.4)";
+			ctx.beginPath(); ctx.ellipse(2, 2.5, 13, 3.6, 0, 0, Math.PI * 2); ctx.fill();
+			ctx.fillStyle = "rgba(235,240,245,0.5)";
+			ctx.beginPath(); ctx.ellipse(0, 0, 13, 3.6, 0, 0, Math.PI * 2); ctx.fill();
+			ctx.restore();
+		};
+		for (let y = 0; y < 4; y++) {
+			for (let x = 0; x < 4; x++) {
+				const cx = x * 64 + 32;
+				const cy = y * 64 + 32;
+				const ang = (x + y) % 2 === 0 ? Math.PI / 4 : -Math.PI / 4;
+				lug(cx - 12, cy, ang);
+				lug(cx + 12, cy, ang);
+			}
+		}
+		// scratches and a dark traffic polish down the middle rows
+		ctx.strokeStyle = "rgba(215,221,227,0.16)";
+		ctx.lineWidth = 1;
+		for (let i = 0; i < 14; i++) {
+			const x = rand() * w;
+			const y = rand() * h;
+			ctx.beginPath();
+			ctx.moveTo(x, y);
+			ctx.lineTo(x + (rand() - 0.5) * 60, y + (rand() - 0.5) * 12);
+			ctx.stroke();
+		}
+		speckle(ctx, w, h, rand, 260, "#33383e", 0.28, 9);
+	});
+	tex.wrapS = THREE.RepeatWrapping;
+	tex.wrapT = THREE.RepeatWrapping;
+	return tex;
+}
+
+// Fuel barrel: rolled reinforcing rings, a faded paint band, heavy rust.
+// Painted once and wrapped once around the drum.
+export function barrelTexture() {
+	const tex = makeCanvas(256, 256, (ctx, w, h) => {
+		const rand = paintRand(4477);
+		const g = ctx.createLinearGradient(0, 0, 0, h);
+		g.addColorStop(0, "#715431");
+		g.addColorStop(0.5, "#654a2c");
+		g.addColorStop(1, "#513b22");
+		ctx.fillStyle = g;
+		ctx.fillRect(0, 0, w, h);
+		// rolled rings: a bright crown with a dark groove under it
+		for (const y of [42, 126, 210]) {
+			ctx.fillStyle = "rgba(255,235,200,0.16)";
+			ctx.fillRect(0, y, w, 7);
+			ctx.fillStyle = "rgba(0,0,0,0.4)";
+			ctx.fillRect(0, y + 7, w, 4);
+		}
+		ctx.fillStyle = "rgba(0,0,0,0.35)";
+		ctx.fillRect(0, 0, w, 8); // top rim shadow
+		// faded paint band, mostly rusted away
+		ctx.fillStyle = "rgba(214,205,188,0.26)";
+		ctx.fillRect(0, 58, w, 22);
+		speckle(ctx, w, h, rand, 1000, "#46300f", 0.3, 7);
+		speckle(ctx, w, h, rand, 700, "#8a653a", 0.25, 6);
+		speckle(ctx, w, h, rand, 260, "#2e1f0e", 0.32, 11);
+		// drips running down from the rings
+		for (let i = 0; i < 12; i++) {
+			const x = rand() * w;
+			const y0 = [42, 126, 210][Math.floor(rand() * 3)] + 11;
+			const len = 20 + rand() * 50;
+			const dg = ctx.createLinearGradient(0, y0, 0, y0 + len);
+			dg.addColorStop(0, "rgba(30,20,10,0.4)");
+			dg.addColorStop(1, "rgba(30,20,10,0)");
+			ctx.fillStyle = dg;
+			ctx.fillRect(x, y0, 3, len);
+		}
+		// the weld seam where the sheet closes
+		ctx.fillStyle = "rgba(0,0,0,0.3)";
+		ctx.fillRect(0, 0, 3, h);
+	});
+	tex.wrapS = THREE.RepeatWrapping;
+	tex.wrapT = THREE.RepeatWrapping;
+	return tex;
+}
+
+// The material helper every surface above is meant to be used through:
+// the painted canvas is both the colour map and the bump map (its
+// luminance is the heightfield the painters drew), with roughness-first
+// defaults so dusk light rakes across it instead of glaring.
+// opts: { color, roughness, metalness, bumpScale, envMapIntensity }.
+export function surfaceMaterial(tex, opts = {}) {
+	const mat = new THREE.MeshStandardMaterial({
+		map: tex,
+		bumpMap: tex,
+		bumpScale: opts.bumpScale !== undefined ? opts.bumpScale : 0.35,
+		color: opts.color !== undefined ? opts.color : 0xffffff,
+		roughness: opts.roughness !== undefined ? opts.roughness : 0.85,
+		metalness: opts.metalness !== undefined ? opts.metalness : 0.2,
+	});
+	if (opts.envMapIntensity !== undefined) mat.envMapIntensity = opts.envMapIntensity;
+	return mat;
 }
 
 // Blotchy smoke puff: several overlapping soft blobs so a cloud of them
