@@ -93,7 +93,10 @@ export function hasLOS(origin, target, colliders) {
 const actorBox = new THREE.Box3();
 
 function setActorBox(pos) {
-	actorBox.min.set(pos.x - CFG.actorRadius, pos.y, pos.z - CFG.actorRadius);
+	// The box bottom rides 2 cm above the feet: Box3 intersection counts a
+	// floor the actor stands ON (touching faces) as an overlap, and the XZ
+	// passes would then shove the actor sideways off its own floor slab.
+	actorBox.min.set(pos.x - CFG.actorRadius, pos.y + 0.02, pos.z - CFG.actorRadius);
 	actorBox.max.set(pos.x + CFG.actorRadius, pos.y + CFG.actorHeight, pos.z + CFG.actorRadius);
 }
 
@@ -142,6 +145,21 @@ export function slideMove(pos, vel, dt, colliders) {
 		}
 	}
 
+	// Push-out side: follow the velocity when there is one; when the actor
+	// is standing still inside a box (a spawn touching a wall), exit by the
+	// NEAREST face — defaulting to one fixed side chains the actor box by
+	// box across the whole map.
+	const exitX = (box) => {
+		if (vel.x > 0) return box.min.x - r - 0.001;
+		if (vel.x < 0) return box.max.x + r + 0.001;
+		return pos.x - box.min.x < box.max.x - pos.x ? box.min.x - r - 0.001 : box.max.x + r + 0.001;
+	};
+	const exitZ = (box) => {
+		if (vel.z > 0) return box.min.z - r - 0.001;
+		if (vel.z < 0) return box.max.z + r + 0.001;
+		return pos.z - box.min.z < box.max.z - pos.z ? box.min.z - r - 0.001 : box.max.z + r + 0.001;
+	};
+
 	// X axis, with step-up.
 	pos.x += vel.x * dt;
 	hit = overlapsAny(pos, colliders);
@@ -152,13 +170,13 @@ export function slideMove(pos, vel, dt, colliders) {
 			pos.y = stepTop;
 			if (overlapsAny(pos, colliders)) {
 				pos.y = oldY;
-				pos.x = vel.x > 0 ? hit.min.x - r - 0.001 : hit.max.x + r + 0.001;
+				pos.x = exitX(hit);
 				out.hitWall = true;
 			} else {
 				out.grounded = true;
 			}
 		} else {
-			pos.x = vel.x > 0 ? hit.min.x - r - 0.001 : hit.max.x + r + 0.001;
+			pos.x = exitX(hit);
 			out.hitWall = true;
 		}
 	}
@@ -173,13 +191,13 @@ export function slideMove(pos, vel, dt, colliders) {
 			pos.y = stepTop;
 			if (overlapsAny(pos, colliders)) {
 				pos.y = oldY;
-				pos.z = vel.z > 0 ? hit.min.z - r - 0.001 : hit.max.z + r + 0.001;
+				pos.z = exitZ(hit);
 				out.hitWall = true;
 			} else {
 				out.grounded = true;
 			}
 		} else {
-			pos.z = vel.z > 0 ? hit.min.z - r - 0.001 : hit.max.z + r + 0.001;
+			pos.z = exitZ(hit);
 			out.hitWall = true;
 		}
 	}

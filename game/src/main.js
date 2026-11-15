@@ -203,6 +203,17 @@ function step(dt) {
 
 		routePlayerCombat(dt);
 		updateWeapons(G, dt);
+
+		// safety net: nobody may fall out of the world — put them back at
+		// their own spawn with a stopped fall instead of losing them
+		for (const a of G.actors) {
+			if (a.pos.y < -8) {
+				const mates = G.actors.filter((x) => x.team === a.team);
+				const sp = G.world.spawns[a.team === 0 ? "ember" : "guard"][mates.indexOf(a) % 5];
+				a.pos.copy(sp);
+				a.vel.set(0, 0, 0);
+			}
+		}
 	}
 
 	// buy menu follows the freeze phase
