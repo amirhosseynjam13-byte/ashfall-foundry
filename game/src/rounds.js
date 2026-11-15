@@ -13,6 +13,9 @@ export function createMatch(G) {
 		phaseT: 0, // seconds left in the current phase
 		roundNum: 0,
 		score: [0, 0], // [ember, guard]
+		history: [], // round winners in order, for the HUD pips
+		timeLeft: 0, // mirrors phaseT for HUD/bots (phaseT counts down)
+		bombPlanted: false, bombPos: null, bombSite: null, // flat mirrors of bomb, for bots/HUD
 		lossStreak: [0, 0],
 		bomb: null, // { state: carried|dropped|planted|exploded|defused, carrier, site, pos, t }
 		channel: null, // { actor, kind: 'plant'|'defuse', t, dur, site }
@@ -41,6 +44,7 @@ export function createMatch(G) {
 
 	function startMatch() {
 		M.score = [0, 0];
+		M.history = [];
 		M.lossStreak = [0, 0];
 		M.roundNum = 0;
 		for (const a of G.actors) {
@@ -64,7 +68,7 @@ export function createMatch(G) {
 				const s = spawns[team === 0 ? "ember" : "guard"][i % 5];
 				a.pos.copy(s);
 				a.vel.set(0, 0, 0);
-				a.yaw = team === 0 ? Math.PI / 2 : -Math.PI / 2; // face mid-field
+				a.yaw = team === 0 ? -Math.PI / 2 : Math.PI / 2; // face mid-field (-Z forward convention)
 				a.pitch = 0;
 				a.hp = 100;
 				a.alive = true;
@@ -74,18 +78,14 @@ export function createMatch(G) {
 				a.defusing = false;
 				a.mesh.position.copy(s);
 				a.mesh.rotation.set(0, 0, 0);
-				a.mesh.visible = true;
+				a.mesh.visible = !a.isPlayer; // first person: never render your own body
 				if (!a.loadout) a.loadout = createLoadout();
-				if (!a.grenades) a.grenades = { frag: 0, smoke: 0, flash: 0 };
-				// survivors keep their kit; the dead re-issue with a sidearm
+				// survivors keep their kit; the dead re-issue with a fresh
+				// loadout (createLoadout already puts knife + P9 in hand)
 				if (a.roundDied) {
 					a.loadout = createLoadout();
-					a.grenades = { frag: 0, smoke: 0, flash: 0 };
 					a.armor = 0;
 					a.helmet = false;
-					giveWeapon(a, "p9");
-				} else if (!a.loadout.current) {
-					giveWeapon(a, "p9");
 				}
 				a.roundDied = false;
 			});
@@ -129,7 +129,7 @@ export function createMatch(G) {
 		if (price < 0 || actor.money < price) return false;
 
 		if (kind === "weapon") {
-			if (actor.loadout.weapons[WEAPONS[id].slot] === id) return false; // already own it
+			if (actor.loadout.states && actor.loadout.states[id]) return false; // already own it
 			giveWeapon(actor, id);
 		} else if (kind === "armor") {
 			if (id === "vest") {
@@ -141,8 +141,8 @@ export function createMatch(G) {
 				actor.helmet = true;
 			}
 		} else {
-			if (actor.grenades[id] >= 1) return false; // one of each, CS style
-			actor.grenades[id]++;
+			if (actor.loadout.grenades[id] >= 1) return false; // one of each, CS style
+			actor.loadout.grenades[id]++;
 		}
 		actor.money -= price;
 		if (G.audio) G.audio.buy();
@@ -153,7 +153,8 @@ export function createMatch(G) {
 	// grenades when rich. Runs in freeze, spends through the same buy() rules.
 	function botBuy(actor) {
 		const tryBuy = (kind, id) => buy(actor, kind, id);
-		const hasPrimary = actor.loadout && actor.loadout.weapons[1];
+		const st = actor.loadout && actor.loadout.states;
+		const hasPrimary = !!(st && (st.vulcan || st.raptor || st.mule || st.longshot));
 		if (!hasPrimary) {
 			if (actor.money >= 2700 + 650) { tryBuy("weapon", "vulcan"); tryBuy("armor", "vest"); }
 			else if (actor.money >= 2700) tryBuy("weapon", "vulcan");
@@ -261,6 +262,7 @@ export function createMatch(G) {
 		M.lastWinner = winner;
 		M.lastReason = reason;
 		M.score[winner]++;
+		M.history.push(winner);
 		M.lossStreak[winner] = 0;
 		const loser = 1 - winner;
 		M.lossStreak[loser] = Math.min(4, M.lossStreak[loser] + 1);
@@ -296,6 +298,12 @@ export function createMatch(G) {
 		if (G.noiseEvents) {
 			while (G.noiseEvents.length && G.simTime - G.noiseEvents[0].t > 1.5) G.noiseEvents.shift();
 		}
+		// flat mirrors the HUD and bot brains read
+		M.timeLeft = M.phaseT;
+		M.bombPlanted = !!(M.bomb && M.bomb.state === "planted");
+		M.bombPos = M.bomb ? M.bomb.pos : null;
+		M.bombSite = M.bomb ? M.bomb.site : null;
+		if (M.bomb) M.bomb.planted = M.bomb.state === "planted";
 		if (M.phase === "menu" || M.phase === "matchover") return;
 
 		M.phaseT -= dt;
