@@ -1,12 +1,14 @@
 // hud.js - all 2D interface: HUD, buy menu, scoreboard, banners, and the main menu with its weather picker.
-import { CFG, WEAPONS, ARMOR, GRENADES, BUY } from "./config.js";
+import { CFG,WEAPONS,ARMOR,GRENADES,BUY } from "./config.js";
 
-const CSS = `
+const CSS=`
 #hud-root{position:fixed;inset:0;pointer-events:none;z-index:20;overflow:hidden;font-family:system-ui,"Segoe UI",Roboto,sans-serif;color:#ece7db;--ember:#ff7a26;--guard:#2fd4c4;--panel:rgba(9,14,17,.72);--line:rgba(255,255,255,.10);--dim:#98a2a8;--bad:#ff5340;-webkit-user-select:none;user-select:none}
 #hud-root .num{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-variant-numeric:tabular-nums}
 #hud-root[data-phase="menu"] .af-ingame,#hud-root[data-phase="over"] .af-ingame{display:none}
 .af-vig{position:absolute;inset:0;opacity:0;transition:opacity .25s;background:radial-gradient(ellipse at center,transparent 52%,rgba(190,10,0,.55) 100%)}
 .af-flash{position:absolute;inset:0;background:#fff;opacity:0}
+.af-grade{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 56%,rgba(6,5,9,.38) 100%),linear-gradient(180deg,rgba(255,150,60,.05),transparent 30%)}
+.af-scope{position:absolute;inset:0;display:none;background:linear-gradient(90deg,transparent calc(50% - 1px),rgba(8,8,10,.9) calc(50% - 1px),rgba(8,8,10,.9) calc(50% + 1px),transparent calc(50% + 1px)),linear-gradient(0deg,transparent calc(50% - 1px),rgba(8,8,10,.9) calc(50% - 1px),rgba(8,8,10,.9) calc(50% + 1px),transparent calc(50% + 1px)),radial-gradient(circle at center,transparent 30%,rgba(2,2,3,.985) 33.5%)}
 .af-top{position:absolute;top:10px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:3px}
 .af-round{font-size:11px;letter-spacing:.28em;color:var(--dim)}
 .af-score{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px 16px 5px}
@@ -116,23 +118,23 @@ const CSS = `
 .af-wbtn.on{color:#14100c;background:var(--ember);border-color:transparent}
 `;
 
-function make(tag, cls, text) {
-	const e = document.createElement(tag);
-	if (cls) e.className = cls;
-	if (text != null) e.textContent = text;
+function make(tag,cls,text) {
+	const e=document.createElement(tag);
+	if (cls) e.className=cls;
+	if (text != null) e.textContent=text;
 	return e;
 }
 
-const fmtMoney = (n) => "$" + Math.round(n).toLocaleString("en-US");
-const fmtClock = (s) => {
-	s = Math.max(0, Math.ceil(s));
-	return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+const fmtMoney=(n) => "$" + Math.round(n).toLocaleString("en-US");
+const fmtClock=(s) => {
+	s=Math.max(0,Math.ceil(s));
+	return Math.floor(s / 60) + ":" + String(s % 60).padStart(2,"0");
 };
 
 function timerSeconds(m) {
 	if (!m) return null;
 	if (typeof m.timeLeft === "number") return m.timeLeft;
-	const pt = m.phaseT ?? 0;
+	const pt=m.phaseT ?? 0;
 	switch (m.phase) {
 		case "freeze": return CFG.freezeTime - pt;
 		case "live": return CFG.roundTime - pt;
@@ -143,12 +145,12 @@ function timerSeconds(m) {
 }
 
 function ammoOf(p) {
-	if (!p) return { id: null, ammo: null, reserve: null };
-	const lo = p.loadout;
-	const id = lo?.current ?? p.currentWeapon ?? lo?.currentId ?? null;
-	let st = null;
-	if (lo && id) st = lo.states?.[id] ?? lo.weapons?.[id] ?? null;
-	if (!st && p.weapon && typeof p.weapon === "object") st = p.weapon;
+	if (!p) return { id: null,ammo: null,reserve: null };
+	const lo=p.loadout;
+	const id=lo?.current ?? p.currentWeapon ?? lo?.currentId ?? null;
+	let st=null;
+	if (lo && id) st=lo.states?.[id] ?? lo.weapons?.[id] ?? null;
+	if (!st && p.weapon && typeof p.weapon === "object") st=p.weapon;
 	return {
 		id,
 		ammo: st?.ammo ?? st?.mag ?? p.ammo ?? null,
@@ -156,17 +158,17 @@ function ammoOf(p) {
 	};
 }
 
-function grenadeCount(p, id) {
+function grenadeCount(p,id) {
 	return p?.loadout?.grenades?.[id] ?? p?.grenades?.[id] ?? 0;
 }
 
-function itemInfo(kind, id) {
+function itemInfo(kind,id) {
 	if (kind === "weapon") return WEAPONS[id];
 	if (kind === "armor") return ARMOR[id];
 	return GRENADES[id];
 }
 
-function ownedOf(p, kind, id) {
+function ownedOf(p,kind,id) {
 	if (!p) return false;
 	if (kind === "weapon") {
 		return !!(
@@ -179,511 +181,516 @@ function ownedOf(p, kind, id) {
 	if (kind === "armor") {
 		return id === "vest" ? (p.armor ?? 0) > 0 : !!p.helmet;
 	}
-	return grenadeCount(p, id) > 0;
+	return grenadeCount(p,id) > 0;
 }
 
 export function createHUD(G) {
-	const style = document.createElement("style");
-	style.textContent = CSS;
+	const style=document.createElement("style");
+	style.textContent=CSS;
 	document.head.appendChild(style);
-	const root = make("div");
-	root.id = "hud-root";
-	root.dataset.phase = "menu";
+	const root=make("div");
+	root.id="hud-root";
+	root.dataset.phase="menu";
 	document.body.appendChild(root);
 
-	const el = {};
-	el.vig = make("div", "af-vig");
-	el.flash = make("div", "af-flash");
-	root.append(el.vig, el.flash);
+	const el={};
+	el.vig=make("div","af-vig");
+	el.flash=make("div","af-flash");
+	root.append(el.vig,el.flash);
+	el.grade=make("div","af-grade");
+	el.scope=make("div","af-scope");
+	root.append(el.grade,el.scope);
 
-	el.top = make("div", "af-top af-ingame");
-	el.round = make("div", "af-round num", "ROUND 1");
-	const score = make("div", "af-score");
-	el.scoreE = make("span", "side e num", "0");
-	el.timer = make("span", "af-timer num", "1:45");
-	el.scoreG = make("span", "side g num", "0");
-	score.append(el.scoreE, el.timer, el.scoreG);
-	el.pips = make("div", "af-pips");
-	el.bomb = make("div", "af-bomb");
-	el.bombTxt = make("div", "txt", "BOMB PLANTED");
-	const bombBar = make("div", "af-bombbar");
-	el.bombFill = make("i");
+	el.top=make("div","af-top af-ingame");
+	el.round=make("div","af-round num","ROUND 1");
+	const score=make("div","af-score");
+	el.scoreE=make("span","side e num","0");
+	el.timer=make("span","af-timer num","1:45");
+	el.scoreG=make("span","side g num","0");
+	score.append(el.scoreE,el.timer,el.scoreG);
+	el.pips=make("div","af-pips");
+	el.bomb=make("div","af-bomb");
+	el.bombTxt=make("div","txt","BOMB PLANTED");
+	const bombBar=make("div","af-bombbar");
+	el.bombFill=make("i");
 	bombBar.append(el.bombFill);
-	el.bomb.append(el.bombTxt, bombBar);
-	el.top.append(el.round, score, el.pips, el.bomb);
+	el.bomb.append(el.bombTxt,bombBar);
+	el.top.append(el.round,score,el.pips,el.bomb);
 	root.append(el.top);
 
-	el.kf = make("div", "af-kf af-ingame");
+	el.kf=make("div","af-kf af-ingame");
 	root.append(el.kf);
-	const kfPool = [];
-	for (let i = 0; i < 5; i++) {
-		const row = make("div", "af-kfrow");
-		row.style.display = "none";
+	const kfPool=[];
+	for (let i=0; i < 5; i++) {
+		const row=make("div","af-kfrow");
+		row.style.display="none";
 		el.kf.append(row);
-		kfPool.push({ el: row, t: 0 });
+		kfPool.push({ el: row,t: 0 });
 	}
 
-	el.bl = make("div", "af-bl af-ingame");
-	const tag = make("div", "af-teamtag");
-	tag.append(make("span", "sq"), make("span", null, "EMBER CELL"),
-		make("span", "sub", "ATTACK — PLANT THE CHARGE"));
-	const hpRow = make("div", "af-stat");
-	const hpBar = make("div", "af-bar");
-	el.hpFill = make("i");
+	el.bl=make("div","af-bl af-ingame");
+	const tag=make("div","af-teamtag");
+	tag.append(make("span","sq"),make("span",null,"EMBER CELL"),
+		make("span","sub","ATTACK — PLANT THE CHARGE"));
+	const hpRow=make("div","af-stat");
+	const hpBar=make("div","af-bar");
+	el.hpFill=make("i");
 	hpBar.append(el.hpFill);
-	el.hpVal = make("span", "val num", "100");
-	hpRow.append(make("span", "lab", "HP"), hpBar, el.hpVal);
-	const armRow = make("div", "af-stat");
-	const armBar = make("div", "af-bar arm");
-	el.armFill = make("i");
+	el.hpVal=make("span","val num","100");
+	hpRow.append(make("span","lab","HP"),hpBar,el.hpVal);
+	const armRow=make("div","af-stat");
+	const armBar=make("div","af-bar arm");
+	el.armFill=make("i");
 	armBar.append(el.armFill);
-	el.armVal = make("span", "val num", "0");
-	armRow.append(make("span", "lab", "ARM"), armBar, el.armVal);
-	el.bl.append(tag, hpRow, armRow);
+	el.armVal=make("span","val num","0");
+	armRow.append(make("span","lab","ARM"),armBar,el.armVal);
+	el.bl.append(tag,hpRow,armRow);
 	root.append(el.bl);
 
-	el.br = make("div", "af-br af-ingame");
-	el.money = make("div", "af-money num", "$800");
-	el.wname = make("div", "af-wname", "");
-	const ammoRow = make("div", "af-ammo");
-	el.ammoBig = make("span", "big num", "");
-	el.ammoRes = make("span", "res num", "");
-	ammoRow.append(el.ammoBig, el.ammoRes);
-	el.ammoRow = ammoRow;
-	el.nades = make("div", "af-nades");
-	el.nadeChips = {};
-	for (const id of ["frag", "smoke", "flash"]) {
-		const chip = make("div", "af-nade num", id.toUpperCase() + " ×0");
+	el.br=make("div","af-br af-ingame");
+	el.money=make("div","af-money num","$800");
+	el.wname=make("div","af-wname","");
+	const ammoRow=make("div","af-ammo");
+	el.ammoBig=make("span","big num","");
+	el.ammoRes=make("span","res num","");
+	ammoRow.append(el.ammoBig,el.ammoRes);
+	el.ammoRow=ammoRow;
+	el.nades=make("div","af-nades");
+	el.nadeChips={};
+	for (const id of ["frag","smoke","flash"]) {
+		const chip=make("div","af-nade num",id.toUpperCase() + " ×0");
 		el.nades.append(chip);
-		el.nadeChips[id] = chip;
+		el.nadeChips[id]=chip;
 	}
-	el.br.append(el.money, el.wname, ammoRow, el.nades);
+	el.br.append(el.money,el.wname,ammoRow,el.nades);
 	root.append(el.br);
 
-	el.cross = make("div", "af-cross af-ingame");
-	for (const c of ["t", "b", "l", "r", "dot"]) el.cross.append(make("span", c));
+	el.cross=make("div","af-cross af-ingame");
+	for (const c of ["t","b","l","r","dot"]) el.cross.append(make("span",c));
 	root.append(el.cross);
-	el.hit = make("div", "af-hit af-ingame");
-	for (const c of ["a", "b", "c", "d"]) el.hit.append(make("span", c));
+	el.hit=make("div","af-hit af-ingame");
+	for (const c of ["a","b","c","d"]) el.hit.append(make("span",c));
 	root.append(el.hit);
 
-	el.dmgc = make("div", "af-dmgc af-ingame");
+	el.dmgc=make("div","af-dmgc af-ingame");
 	root.append(el.dmgc);
-	const arcs = [];
-	for (let i = 0; i < 4; i++) {
-		const a = make("div", "af-arc");
+	const arcs=[];
+	for (let i=0; i < 4; i++) {
+		const a=make("div","af-arc");
 		el.dmgc.append(a);
-		arcs.push({ el: a, t: 0 });
+		arcs.push({ el: a,t: 0 });
 	}
-	let arcNext = 0;
+	let arcNext=0;
 
-	el.prog = make("div", "af-prog af-ingame");
-	el.progLab = make("div", "lab", "");
-	const progBar = make("div", "bar");
-	el.progFill = make("i");
+	el.prog=make("div","af-prog af-ingame");
+	el.progLab=make("div","lab","");
+	const progBar=make("div","bar");
+	el.progFill=make("i");
 	progBar.append(el.progFill);
-	el.prog.append(el.progLab, progBar);
+	el.prog.append(el.progLab,progBar);
 	root.append(el.prog);
 
-	el.buyHint = make("div", "af-buyhint", "PRESS B — BUY MENU");
+	el.buyHint=make("div","af-buyhint","PRESS B — BUY MENU");
 	root.append(el.buyHint);
 
-	el.banner = make("div", "af-banner");
-	el.bannerH = make("h1");
-	el.bannerP = make("p");
-	el.banner.append(el.bannerH, el.bannerP);
+	el.banner=make("div","af-banner");
+	el.bannerH=make("h1");
+	el.bannerP=make("p");
+	el.banner.append(el.bannerH,el.bannerP);
 	root.append(el.banner);
 
-	el.buy = make("div", "af-buy af-panel");
-	const buyHead = make("h2");
-	buyHead.append(make("span", null, "BUY MENU"));
-	el.buyMoney = make("span", "num", "$0");
+	el.buy=make("div","af-buy af-panel");
+	const buyHead=make("h2");
+	buyHead.append(make("span",null,"BUY MENU"));
+	el.buyMoney=make("span","num","$0");
 	buyHead.append(el.buyMoney);
-	el.buyGrid = make("div", "af-buygrid");
-	el.buy.append(buyHead, el.buyGrid,
-		make("div", "hint", "Click or press 1–9 · B closes · freeze time only"));
+	el.buyGrid=make("div","af-buygrid");
+	el.buy.append(buyHead,el.buyGrid,
+		make("div","hint","Click or press 1–9 · B closes · freeze time only"));
 	root.append(el.buy);
-	const buyItems = BUY.map(([kind, id], i) => {
-		const info = itemInfo(kind, id);
-		const cell = make("div", "af-item");
+	const buyItems=BUY.map(([kind,id],i) => {
+		const info=itemInfo(kind,id);
+		const cell=make("div","af-item");
 		cell.append(
-			make("span", "key num", String(i + 1)),
-			make("div", "nm", info?.name ?? id),
-			make("div", "pr num", fmtMoney(info?.price ?? 0)),
+			make("span","key num",String(i + 1)),
+			make("div","nm",info?.name ?? id),
+			make("div","pr num",fmtMoney(info?.price ?? 0)),
 		);
-		cell.addEventListener("click", () => buy(id));
+		cell.addEventListener("click",() => buy(id));
 		el.buyGrid.append(cell);
-		return { kind, id, el: cell, price: info?.price ?? 0 };
+		return { kind,id,el: cell,price: info?.price ?? 0 };
 	});
 
-	el.board = make("div", "af-board af-panel");
+	el.board=make("div","af-board af-panel");
 	root.append(el.board);
-	const boardRows = { 0: [], 1: [] };
-	for (const team of [0, 1]) {
-		el.board.append(make("h3", team === 0 ? "e" : "g",
+	const boardRows={ 0: [],1: [] };
+	for (const team of [0,1]) {
+		el.board.append(make("h3",team === 0 ? "e" : "g",
 			team === 0 ? "EMBER CELL" : "FOUNDRY GUARD"));
-		const head = make("div", "af-brow head");
-		for (const t of ["PLAYER", "K", "D", "MONEY", ""]) head.append(make("span", null, t));
+		const head=make("div","af-brow head");
+		for (const t of ["PLAYER","K","D","MONEY",""]) head.append(make("span",null,t));
 		el.board.append(head);
-		for (let i = 0; i < 5; i++) {
-			const row = make("div", "af-brow");
-			const cells = [];
-			for (let j = 0; j < 5; j++) {
-				const c = j === 4 ? make("span", "dot") : make("span", j > 0 ? "num" : null, "");
+		for (let i=0; i < 5; i++) {
+			const row=make("div","af-brow");
+			const cells=[];
+			for (let j=0; j < 5; j++) {
+				const c=j === 4 ? make("span","dot") : make("span",j > 0 ? "num" : null,"");
 				row.append(c);
 				cells.push(c);
 			}
 			el.board.append(row);
-			boardRows[team].push({ el: row, cells });
+			boardRows[team].push({ el: row,cells });
 		}
 	}
 
-	el.over = make("div", "af-overlay");
-	el.overTitle = make("div", "af-final", "");
-	el.overScore = make("div", "af-sub num", "");
-	el.overStats = make("div", "af-note num", "");
-	const againBtn = make("button", "af-btn", "PLAY AGAIN");
-	againBtn.addEventListener("click", () => G.onRestart?.());
-	el.over.append(el.overTitle, el.overScore, el.overStats, againBtn);
+	el.over=make("div","af-overlay");
+	el.overTitle=make("div","af-final","");
+	el.overScore=make("div","af-sub num","");
+	el.overStats=make("div","af-note num","");
+	const againBtn=make("button","af-btn","PLAY AGAIN");
+	againBtn.addEventListener("click",() => G.onRestart?.());
+	el.over.append(el.overTitle,el.overScore,el.overStats,againBtn);
 	root.append(el.over);
 
-	el.pause = make("div", "af-overlay");
-	el.pause.append(make("div", "af-final", "PAUSED"),
-		make("div", "af-sub", "CLICK TO RESUME"));
-	el.pause.addEventListener("click", () => G.onResume?.());
+	el.pause=make("div","af-overlay");
+	el.pause.append(make("div","af-final","PAUSED"),
+		make("div","af-sub","CLICK TO RESUME"));
+	el.pause.addEventListener("click",() => G.onResume?.());
 	root.append(el.pause);
 
-	el.menu = make("div", "af-overlay on");
-	el.menu.append(make("h1", "af-title", "ASHFALL FOUNDRY"),
-		make("div", "af-sub", "5V5 TACTICAL FPS — EMBER CELL vs FOUNDRY GUARD"));
-	const playBtn = make("button", "af-btn", "PLAY");
-	playBtn.addEventListener("click", () => G.onPlay?.());
+	el.menu=make("div","af-overlay on");
+	el.menu.append(make("h1","af-title","ASHFALL FOUNDRY"),
+		make("div","af-sub","5V5 TACTICAL FPS — EMBER CELL vs FOUNDRY GUARD"));
+	const playBtn=make("button","af-btn","PLAY");
+	playBtn.addEventListener("click",() => G.onPlay?.());
 	el.menu.append(playBtn);
 
-	const wrow = make("div", "af-wrow");
-	wrow.append(make("span", "lab", "WEATHER"));
-	const wbtns = {};
+	const wrow=make("div","af-wrow");
+	wrow.append(make("span","lab","WEATHER"));
+	const wbtns={};
 	function markWeather(id) {
-		for (const k of Object.keys(wbtns)) wbtns[k].classList.toggle("on", k === id);
+		for (const k of Object.keys(wbtns)) wbtns[k].classList.toggle("on",k === id);
 	}
-	for (const [id, label] of [["dusk", "☀ DUSK"], ["rain", "🌧 RAIN"], ["snow", "❄ SNOW"]]) {
-		const b = make("button", "af-wbtn", label);
-		b.addEventListener("click", () => {
-			try { localStorage.setItem("ashfall-weather", id); } catch {  }
+	for (const [id,label] of [["dusk","☀ DUSK"],["rain","🌧 RAIN"],["snow","❄ SNOW"]]) {
+		const b=make("button","af-wbtn",label);
+		b.addEventListener("click",() => {
+			try { localStorage.setItem("ashfall-weather",id); } catch {  }
 			G.onWeather?.(id);
 			markWeather(id);
 		});
-		wbtns[id] = b;
+		wbtns[id]=b;
 		wrow.append(b);
 	}
 	markWeather(G.weatherMode ?? "dusk");
 	el.menu.append(wrow);
-	const controls = make("div", "af-controls");
-	const CONTROL_ROWS = [
-		["W A S D", "move"], ["MOUSE", "look"], ["LMB", "fire"], ["RMB", "aim / scope"],
-		["R", "reload"], ["1 2 3 4", "weapon slots"], ["B", "buy menu"],
-		["E (hold)", "plant / defuse"], ["SHIFT", "walk"], ["CTRL", "crouch"],
-		["SPACE", "jump"], ["TAB", "scoreboard"], ["M", "mute"],
+	const controls=make("div","af-controls");
+	const CONTROL_ROWS=[
+		["W A S D","move"],["MOUSE","look"],["LMB","fire"],["RMB","aim / scope"],
+		["R","reload"],["1 2 3 4","weapon slots"],["B","buy menu"],
+		["E (hold)","plant / defuse"],["SHIFT","walk"],["CTRL","crouch"],
+		["SPACE","jump"],["TAB","scoreboard"],["M","mute"],
 	];
-	for (const [k, v] of CONTROL_ROWS) {
-		controls.append(make("b", null, k), make("span", null, v));
+	for (const [k,v] of CONTROL_ROWS) {
+		controls.append(make("b",null,k),make("span",null,v));
 	}
 	el.menu.append(controls,
-		make("div", "af-note",
+		make("div","af-note",
 			"Plant the charge at A — Furnace or B — Cooling Yard. First to 7 rounds. " +
 			"Buy economy, team-tactics bots, dynamic weather. " +
 			"Runs in desktop Chrome, WebGL, no downloads."));
 	root.append(el.menu);
 
-	let phase = "";
-	let bannerT = 0;
-	let hitT = 0;
-	let flashLevel = 0;
-	let buyOpen = false;
-	let boardOpen = false;
-	let overShown = false;
-	let boardT = 0;
-	let buySig = "";
-	let progOverride = null;
-	const last = {};
-	function setText(node, key, txt) {
+	let phase="";
+	let bannerT=0;
+	let hitT=0;
+	let flashLevel=0;
+	let buyOpen=false;
+	let boardOpen=false;
+	let overShown=false;
+	let boardT=0;
+	let buySig="";
+	let progOverride=null;
+	const last={};
+	function setText(node,key,txt) {
 		if (last[key] !== txt) {
-			last[key] = txt;
-			node.textContent = txt;
+			last[key]=txt;
+			node.textContent=txt;
 		}
 	}
-	function setWidth(node, key, frac) {
-		const pct = Math.round(Math.max(0, Math.min(1, frac)) * 100);
+	function setWidth(node,key,frac) {
+		const pct=Math.round(Math.max(0,Math.min(1,frac)) * 100);
 		if (last[key] !== pct) {
-			last[key] = pct;
-			node.style.width = pct + "%";
+			last[key]=pct;
+			node.style.width=pct + "%";
 		}
 	}
 
 	function buy(id) {
 
 		G.match?.buy?.(id);
-		buySig = "";
+		buySig="";
 	}
 
 	function refreshBuy() {
-		const p = G.player;
-		const money = p?.money ?? 0;
+		const p=G.player;
+		const money=p?.money ?? 0;
 		const sig =
-			money + "|" + buyItems.map((b) => (ownedOf(p, b.kind, b.id) ? 1 : 0)).join("");
+			money + "|" + buyItems.map((b) => (ownedOf(p,b.kind,b.id) ? 1 : 0)).join("");
 		if (sig === buySig) return;
-		buySig = sig;
-		setText(el.buyMoney, "buyMoney", fmtMoney(money));
+		buySig=sig;
+		setText(el.buyMoney,"buyMoney",fmtMoney(money));
 		for (const b of buyItems) {
-			const owned = ownedOf(p, b.kind, b.id);
-			b.el.classList.toggle("owned", owned);
-			b.el.classList.toggle("poor", !owned && money < b.price);
-			b.el.children[2].textContent = owned ? "OWNED" : fmtMoney(b.price);
+			const owned=ownedOf(p,b.kind,b.id);
+			b.el.classList.toggle("owned",owned);
+			b.el.classList.toggle("poor",!owned && money < b.price);
+			b.el.children[2].textContent=owned ? "OWNED" : fmtMoney(b.price);
 		}
 	}
 
 	function refreshBoard() {
-		const actors = G.actors ?? [];
-		for (const team of [0, 1]) {
-			const mates = actors.filter((a) => a && a.team === team);
-			boardRows[team].forEach((row, i) => {
-				const a = mates[i];
-				row.el.style.display = a ? "" : "none";
+		const actors=G.actors ?? [];
+		for (const team of [0,1]) {
+			const mates=actors.filter((a) => a && a.team === team);
+			boardRows[team].forEach((row,i) => {
+				const a=mates[i];
+				row.el.style.display=a ? "" : "none";
 				if (!a) return;
-				row.el.classList.toggle("dead", a.alive === false);
-				row.cells[0].textContent = a.name + (a.isPlayer ? " (YOU)" : "");
-				row.cells[1].textContent = String(a.kills ?? 0);
-				row.cells[2].textContent = String(a.deaths ?? 0);
-				row.cells[3].textContent = fmtMoney(a.money ?? 0);
+				row.el.classList.toggle("dead",a.alive === false);
+				row.cells[0].textContent=a.name + (a.isPlayer ? " (YOU)" : "");
+				row.cells[1].textContent=String(a.kills ?? 0);
+				row.cells[2].textContent=String(a.deaths ?? 0);
+				row.cells[3].textContent=fmtMoney(a.money ?? 0);
 			});
 		}
 	}
 
-	window.addEventListener("keydown", (e) => {
+	window.addEventListener("keydown",(e) => {
 		if (!buyOpen) return;
-		let n = 0;
-		if (e.code.startsWith("Digit")) n = Number(e.code.slice(5));
-		else if (e.code.startsWith("Numpad")) n = Number(e.code.slice(6));
+		let n=0;
+		if (e.code.startsWith("Digit")) n=Number(e.code.slice(5));
+		else if (e.code.startsWith("Numpad")) n=Number(e.code.slice(6));
 		if (n >= 1 && n <= BUY.length) buy(BUY[n - 1][1]);
 	});
 
-	const api = {
-		banner(text, sub = "", color) {
-			el.bannerH.textContent = text;
-			el.bannerH.style.color = color ?? "";
-			el.bannerP.textContent = sub;
+	const api={
+		banner(text,sub="",color) {
+			if (G.shot && text.startsWith("Round ")) return;
+			el.bannerH.textContent=text;
+			el.bannerH.style.color=color ?? "";
+			el.bannerP.textContent=sub;
 			el.banner.classList.add("on");
-			bannerT = 3.6;
+			bannerT=3.6;
 		},
 
-		killfeed(killer, victim, opts = {}) {
+		killfeed(killer,victim,opts={}) {
 			if (killer && typeof killer === "object" && "killer" in killer) {
-				opts = killer;
-				victim = killer.victim;
-				killer = killer.killer;
+				opts=killer;
+				victim=killer.victim;
+				killer=killer.killer;
 			}
-			const kName = typeof killer === "string" ? killer : killer?.name ?? "?";
-			const vName = typeof victim === "string" ? victim : victim?.name ?? "?";
-			const kTeam = typeof killer === "object" ? killer?.team : undefined;
-			const vTeam = typeof victim === "object" ? victim?.team : undefined;
-			let slot = kfPool.find((r) => r.t <= 0);
-			if (!slot) slot = kfPool.reduce((a, b) => (a.t < b.t ? a : b));
-			slot.t = 4.5;
-			const row = slot.el;
-			row.textContent = "";
-			const k = make("span", kTeam === 0 ? "e" : kTeam === 1 ? "g" : null, kName);
-			const w = make("span", "wp", opts.weapon ?? "");
-			const v = make("span", vTeam === 0 ? "e" : vTeam === 1 ? "g" : null, vName);
-			row.append(k, w, v);
-			if (opts.headshot) row.append(make("span", "skull", "☠"));
-			row.style.display = "";
-			row.style.opacity = "1";
+			const kName=typeof killer === "string" ? killer : killer?.name ?? "?";
+			const vName=typeof victim === "string" ? victim : victim?.name ?? "?";
+			const kTeam=typeof killer === "object" ? killer?.team : undefined;
+			const vTeam=typeof victim === "object" ? victim?.team : undefined;
+			let slot=kfPool.find((r) => r.t <= 0);
+			if (!slot) slot=kfPool.reduce((a,b) => (a.t < b.t ? a : b));
+			slot.t=4.5;
+			const row=slot.el;
+			row.textContent="";
+			const k=make("span",kTeam === 0 ? "e" : kTeam === 1 ? "g" : null,kName);
+			const w=make("span","wp",opts.weapon ?? "");
+			const v=make("span",vTeam === 0 ? "e" : vTeam === 1 ? "g" : null,vName);
+			row.append(k,w,v);
+			if (opts.headshot) row.append(make("span","skull","☠"));
+			row.style.display="";
+			row.style.opacity="1";
 			el.kf.prepend(row);
 		},
 
-		hitmarker(kill = false) {
-			el.hit.classList.toggle("kill", !!kill);
-			hitT = kill ? 0.28 : 0.14;
-			el.hit.style.opacity = "1";
+		hitmarker(kill=false) {
+			el.hit.classList.toggle("kill",!!kill);
+			hitT=kill ? 0.28 : 0.14;
+			el.hit.style.opacity="1";
 		},
 
 		damageFrom(relRad) {
-			const a = arcs[arcNext++ % arcs.length];
-			a.t = 0.9;
-			a.el.style.transform = `rotate(${((relRad * 180) / Math.PI).toFixed(1)}deg)`;
-			a.el.style.opacity = "1";
+			const a=arcs[arcNext++ % arcs.length];
+			a.t=0.9;
+			a.el.style.transform=`rotate(${((relRad * 180) / Math.PI).toFixed(1)}deg)`;
+			a.el.style.opacity="1";
 		},
 
 		flash(strength) {
-			flashLevel = Math.max(flashLevel, Math.max(0, Math.min(1, strength)));
+			flashLevel=Math.max(flashLevel,Math.max(0,Math.min(1,strength)));
 		},
 
-		progress(label, frac) {
-			progOverride = label == null ? null : { label, frac: frac ?? 0 };
+		progress(label,frac) {
+			progOverride=label == null ? null : { label,frac: frac ?? 0 };
 		},
 
 		showBuy(open) {
-			buyOpen = !!open;
-			el.buy.classList.toggle("on", buyOpen);
+			buyOpen=!!open;
+			el.buy.classList.toggle("on",buyOpen);
 			if (buyOpen) {
-				buySig = "";
+				buySig="";
 				refreshBuy();
 			}
 		},
 
 		scoreboard(show) {
-			boardOpen = !!show;
-			el.board.classList.toggle("on", boardOpen);
+			boardOpen=!!show;
+			el.board.classList.toggle("on",boardOpen);
 			if (boardOpen) refreshBoard();
 		},
 
 		update(dt) {
-			const m = G.match;
-			const p = G.player;
-			phase = m?.phase ?? "menu";
-			if (root.dataset.phase !== phase) root.dataset.phase = phase;
+			const m=G.match;
+			const p=G.player;
+			phase=m?.phase ?? "menu";
+			if (root.dataset.phase !== phase) root.dataset.phase=phase;
 
-			const menuWanted = phase === "menu" && (!G.shot || G.shotMenu);
+			const menuWanted=phase === "menu" && (!G.shot || G.shotMenu);
 			if (el.menu.classList.contains("on") !== menuWanted) {
-				el.menu.classList.toggle("on", menuWanted);
+				el.menu.classList.toggle("on",menuWanted);
 			}
 			const pauseWanted =
 				!!G.paused && phase !== "menu" && phase !== "over";
 			if (el.pause.classList.contains("on") !== pauseWanted) {
-				el.pause.classList.toggle("on", pauseWanted);
+				el.pause.classList.toggle("on",pauseWanted);
 			}
 			if (phase === "over" && !overShown) {
-				overShown = true;
-				const s = m?.score ?? [0, 0];
-				const won = s[0] > s[1];
-				el.overTitle.textContent = won ? "EMBER CELL WINS" : "FOUNDRY GUARD WINS";
-				el.overTitle.style.color = won ? "var(--ember)" : "var(--guard)";
-				el.overScore.textContent = `FINAL  ${s[0]} — ${s[1]}`;
+				overShown=true;
+				const s=m?.score ?? [0,0];
+				const won=s[0] > s[1];
+				el.overTitle.textContent=won ? "EMBER CELL WINS" : "FOUNDRY GUARD WINS";
+				el.overTitle.style.color=won ? "var(--ember)" : "var(--guard)";
+				el.overScore.textContent=`FINAL  ${s[0]} — ${s[1]}`;
 				el.overStats.textContent =
 					`YOU  ${p?.kills ?? 0} K / ${p?.deaths ?? 0} D`;
 				el.over.classList.add("on");
 			} else if (phase !== "over" && overShown) {
-				overShown = false;
+				overShown=false;
 				el.over.classList.remove("on");
 			}
 
-			const score = m?.score ?? [0, 0];
-			setText(el.scoreE, "sE", String(score[0]));
-			setText(el.scoreG, "sG", String(score[1]));
-			setText(el.round, "round",
+			const score=m?.score ?? [0,0];
+			setText(el.scoreE,"sE",String(score[0]));
+			setText(el.scoreG,"sG",String(score[1]));
+			setText(el.round,"round",
 				"ROUND " + (m?.roundNum ?? score[0] + score[1] + 1) + " / " + CFG.maxRounds);
-			const t = timerSeconds(m);
-			setText(el.timer, "timer", t == null ? "—" : fmtClock(t));
+			const t=timerSeconds(m);
+			setText(el.timer,"timer",t == null ? "—" : fmtClock(t));
 			el.timer.classList.toggle("urgent",
 				(phase === "live" && t != null && t <= 10) || phase === "planted");
-			const hist = Array.isArray(m?.history)
+			const hist=Array.isArray(m?.history)
 				? m.history
-				: [...Array(score[0]).fill(0), ...Array(score[1]).fill(1)];
-			const histSig = hist.join("");
+				: [...Array(score[0]).fill(0),...Array(score[1]).fill(1)];
+			const histSig=hist.join("");
 			if (last.pips !== histSig) {
-				last.pips = histSig;
-				el.pips.textContent = "";
-				for (const h of hist) el.pips.append(make("span", "af-pip " + (h === 0 ? "e" : "g")));
+				last.pips=histSig;
+				el.pips.textContent="";
+				for (const h of hist) el.pips.append(make("span","af-pip " + (h === 0 ? "e" : "g")));
 			}
 
-			const bomb = m?.bomb;
-			const planted = !!bomb?.planted;
-			el.bomb.classList.toggle("on", planted);
+			const bomb=m?.bomb;
+			const planted=!!bomb?.planted;
+			el.bomb.classList.toggle("on",planted);
 			if (planted) {
-				setText(el.bombTxt, "bombTxt",
+				setText(el.bombTxt,"bombTxt",
 					"BOMB PLANTED — SITE " + (bomb.site ?? "A"));
-				setWidth(el.bombFill, "bombFill", (bomb.t ?? CFG.bombTime) / CFG.bombTime);
+				setWidth(el.bombFill,"bombFill",(bomb.t ?? CFG.bombTime) / CFG.bombTime);
 			}
-			const prog = progOverride ??
+			const prog=progOverride ??
 				(bomb?.action && typeof bomb.progress === "number"
-					? { label: bomb.action === "defuse" ? "DEFUSING" : "PLANTING", frac: bomb.progress }
+					? { label: bomb.action === "defuse" ? "DEFUSING" : "PLANTING",frac: bomb.progress }
 					: null);
-			el.prog.classList.toggle("on", !!prog);
+			el.prog.classList.toggle("on",!!prog);
 			if (prog) {
-				setText(el.progLab, "progLab", prog.label);
-				setWidth(el.progFill, "progFill", prog.frac);
+				setText(el.progLab,"progLab",prog.label);
+				setWidth(el.progFill,"progFill",prog.frac);
 			}
-			el.buyHint.classList.toggle("on", phase === "freeze" && !buyOpen);
+			el.buyHint.classList.toggle("on",phase === "freeze" && !buyOpen);
 
-			const hp = Math.max(0, p?.hp ?? 100);
-			setText(el.hpVal, "hp", String(Math.ceil(hp)));
-			setWidth(el.hpFill, "hpFill", hp / 100);
-			const armor = Math.max(0, p?.armor ?? 0);
-			setText(el.armVal, "arm", String(Math.ceil(armor)));
-			setWidth(el.armFill, "armFill", armor / 100);
-			const vig = hp <= 40 && p?.alive !== false
+			const hp=Math.max(0,p?.hp ?? 100);
+			setText(el.hpVal,"hp",String(Math.ceil(hp)));
+			setWidth(el.hpFill,"hpFill",hp / 100);
+			const armor=Math.max(0,p?.armor ?? 0);
+			setText(el.armVal,"arm",String(Math.ceil(armor)));
+			setWidth(el.armFill,"armFill",armor / 100);
+			const vig=hp <= 40 && p?.alive !== false
 				? 0.3 + 0.4 * (1 - hp / 40) + 0.08 * Math.sin((G.time ?? 0) * 5)
 				: 0;
 			if (Math.abs(vig - (last.vig ?? 0)) > 0.01) {
-				last.vig = vig;
-				el.vig.style.opacity = vig.toFixed(2);
+				last.vig=vig;
+				el.vig.style.opacity=vig.toFixed(2);
 			}
 
-			setText(el.money, "money", fmtMoney(p?.money ?? 0));
-			const am = ammoOf(p);
-			const wdef = am.id ? WEAPONS[am.id] : null;
-			setText(el.wname, "wname", wdef?.name ?? "");
+			setText(el.money,"money",fmtMoney(p?.money ?? 0));
+			const am=ammoOf(p);
+			const wdef=am.id ? WEAPONS[am.id] : null;
+			setText(el.wname,"wname",wdef?.name ?? "");
 			if (wdef?.kind === "melee") {
-				setText(el.ammoBig, "ammo", "—");
-				setText(el.ammoRes, "ammoRes", "MELEE");
+				setText(el.ammoBig,"ammo","—");
+				setText(el.ammoRes,"ammoRes","MELEE");
 			} else {
-				setText(el.ammoBig, "ammo", am.ammo == null ? "" : String(am.ammo));
-				setText(el.ammoRes, "ammoRes",
+				setText(el.ammoBig,"ammo",am.ammo == null ? "" : String(am.ammo));
+				setText(el.ammoRes,"ammoRes",
 					am.reserve == null ? "" : "/ " + am.reserve);
 			}
 			el.ammoRow.classList.toggle("low",
 				am.ammo != null && wdef?.mag != null && am.ammo <= Math.ceil(wdef.mag * 0.25));
-			for (const id of ["frag", "smoke", "flash"]) {
-				const n = grenadeCount(p, id);
-				const chip = el.nadeChips[id];
-				setText(chip, "nade" + id, id.toUpperCase() + " ×" + n);
-				chip.classList.toggle("have", n > 0);
+			for (const id of ["frag","smoke","flash"]) {
+				const n=grenadeCount(p,id);
+				const chip=el.nadeChips[id];
+				setText(chip,"nade" + id,id.toUpperCase() + " ×" + n);
+				chip.classList.toggle("have",n > 0);
 			}
 
-			const spread01 = typeof G.getSpread01 === "function"
+			const spread01=typeof G.getSpread01 === "function"
 				? G.getSpread01()
 				: (p?.spread01 ?? 0.18);
-			const gap = Math.round(5 + Math.max(0, Math.min(1, spread01)) * 30);
+			const gap=Math.round(5 + Math.max(0,Math.min(1,spread01)) * 30);
 			if (last.gap !== gap) {
-				last.gap = gap;
-				el.cross.style.setProperty("--gap", gap + "px");
+				last.gap=gap;
+				el.cross.style.setProperty("--gap",gap + "px");
 			}
 			const crossOff =
 				p?.scoped || p?.alive === false || phase === "menu" || phase === "over";
-			el.cross.style.opacity = crossOff ? "0" : "1";
+			el.cross.style.opacity=crossOff ? "0" : "1";
+			el.scope.style.display=p?.scoped && phase !== "menu" && phase !== "over" ? "block" : "none";
 
 			if (hitT > 0) {
 				hitT -= dt;
-				if (hitT <= 0) el.hit.style.opacity = "0";
+				if (hitT <= 0) el.hit.style.opacity="0";
 			}
 			if (bannerT > 0) {
 				bannerT -= dt;
 				if (bannerT <= 0) el.banner.classList.remove("on");
 			}
-			flashLevel = Math.max(0, flashLevel - dt / 0.9);
-			const flashNow = Math.max(flashLevel, p?.flash01 ?? 0);
+			flashLevel=Math.max(0,flashLevel - dt / 0.9);
+			const flashNow=Math.max(flashLevel,p?.flash01 ?? 0);
 			if (Math.abs(flashNow - (last.flash ?? 0)) > 0.01) {
-				last.flash = flashNow;
-				el.flash.style.opacity = flashNow.toFixed(2);
+				last.flash=flashNow;
+				el.flash.style.opacity=flashNow.toFixed(2);
 			}
 			for (const a of arcs) {
 				if (a.t > 0) {
 					a.t -= dt;
-					a.el.style.opacity = Math.max(0, a.t / 0.9).toFixed(2);
+					a.el.style.opacity=Math.max(0,a.t / 0.9).toFixed(2);
 				}
 			}
 			for (const r of kfPool) {
 				if (r.t > 0) {
 					r.t -= dt;
-					if (r.t <= 0) r.el.style.display = "none";
-					else if (r.t < 0.6) r.el.style.opacity = (r.t / 0.6).toFixed(2);
+					if (r.t <= 0) r.el.style.display="none";
+					else if (r.t < 0.6) r.el.style.opacity=(r.t / 0.6).toFixed(2);
 				}
 			}
 			if (buyOpen) refreshBuy();
 			if (boardOpen) {
 				boardT -= dt;
 				if (boardT <= 0) {
-					boardT = 0.25;
+					boardT=0.25;
 					refreshBoard();
 				}
 			}
