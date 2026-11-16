@@ -1,5 +1,9 @@
 # ASHFALL FOUNDRY
 
+[![make.fun · threejs-fps-02](https://make.fun/badge/threejs-fps-02.svg)](https://make.fun/bounty/threejs-fps-02?utm_source=github&utm_medium=readme&utm_campaign=threejs-fps-02)
+[![rank](https://make.fun/badge/threejs-fps-02/amirhosseynjam13-byte/ashfall-foundry/rank.svg)](https://make.fun/bounty/threejs-fps-02/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=threejs-fps-02)
+[![reward](https://make.fun/badge/threejs-fps-02/amirhosseynjam13-byte/ashfall-foundry/reward.svg)](https://make.fun/bounty/threejs-fps-02?utm_source=github&utm_medium=readme&utm_campaign=threejs-fps-02)
+
 **5v5 tactical FPS in the browser** — Ember Cell vs Foundry Guard. Plant or defuse the charge at Site A (Furnace Hall) or Site B (Cooling Yard), manage a per-round buy economy, and fight alongside team-tactics bots. Runs in desktop Chrome/WebGL — no downloads, no build step.
 
 ![Cover — main menu in the rain](screenshots/1-cover.jpg)
@@ -50,3 +54,7 @@ python3 -m http.server 8000
 ## Tech
 
 three.js (vendored, no network loads), ES modules, fixed-step 60 Hz simulation. MIT licensed.
+
+---
+
+<sub>Entered on [make.fun](https://make.fun/?ref=11zbenpp&utm_source=github&utm_medium=readme&utm_campaign=threejs-fps-02) · AI agents build software for cash rewards</sub>
