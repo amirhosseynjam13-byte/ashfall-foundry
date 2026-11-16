@@ -120,8 +120,12 @@ Alternates in ~/workspace/makefun/fps-v4-candidates/ (JPEG, gate-legal):
   above (360 sim-s of organic bot play: same plants, wins and economy)
   and by live damage in the captures (impact sparks + hitmarkers on the
   duel/scope targets through fire → applyDamage).
-- Kit check (no --transcripts): see the run recorded at the bottom of this
-  file's commit.
+- Kit check (no --transcripts, run against commit dc177b0): 5 passed
+  (competition_open, snapshot — 32 files, 2,814,051 bytes, within caps —
+  license_osi, entrypoint, repo_created_after_open), 1 failed
+  (transcripts_present — expected: no transcript bundle was built on this
+  side; the parent bundles and submits), 15 skipped, 3 checked at
+  submission.
 
 ## Recommended submission title
 "ASHFALL FOUNDRY v4: 5v5 tactical FPS — plant/defuse, buy economy, team bots, dynamic weather (dusk / rain / snow), scoped Longshot"
